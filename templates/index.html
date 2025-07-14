@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Assembly Annotator</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- Prism.js CSS for syntax highlighting -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+</head>
+<body>
+<header role="banner">
+  <h1>ASM Annotator</h1>
+  <p>Making assembly code readable. Instantly.</p>
+</header>
+  
+  <div id="container" role="main">
+    <div class="panel" id="input" role="region" aria-labelledby="inputLabel">
+      <h3 id="inputLabel">Paste Your Assembly Code</h3>
+      <textarea id="codeInput" placeholder="Enter your assembly code here..." aria-describedby="inputDesc"></textarea>
+      <div id="inputDesc" class="sr-only">Enter assembly code to analyze and annotate.</div>
+      <div class="button-row" role="group" aria-label="Code input actions">
+        <button class="primary" id="analyzeBtn">Analyze</button>
+        <button class="secondary" id="clearBtn">Clear</button>
+        <button class="accent" id="exampleBtn">Load Example</button>
+        <button class="secondary" id="saveBtn">Save</button>
+        <button class="secondary" id="loadBtn">Load</button>
+        <button class="secondary" id="exportTextBtn">Export Text</button>
+        <button class="secondary" id="exportJsonBtn">Export JSON</button>
+      </div>
+    </div>
+    
+    <div class="panel" id="output" role="region" aria-labelledby="outputLabel">
+      <h3 id="outputLabel">Explanation</h3>
+      <!-- Use pre and code with prism language class -->
+      <pre id="annotations" class="language-asm" tabindex="0"><code></code></pre>
+    </div>
+  </div>
+  
+  <section id="patterns" role="region" aria-labelledby="patternsLabel">
+    <h3 id="patternsLabel">Detected Patterns</h3>
+    <div id="patternList" tabindex="0"></div>
+  </section>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="/static/script.js"></script>
+  <footer style="text-align:center; padding: 15px; background-color: #1E1E1E; color: #E0E0E0; font-size: 0.9em;">
+    Made with ❤️ for the Cybersecurity Committee by <b>ZoeCyber</b>
+  </footer>
+</body>
+</html>
