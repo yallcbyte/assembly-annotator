@@ -98,6 +98,10 @@
 
 * { box-sizing: border-box; }
 
+/* The `hidden` attribute loses to any display rule, and several elements here
+   are flex or block by class. Make it win so view switching actually hides. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background:
@@ -460,3 +464,135 @@ dialog kbd {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ===== View tabs ==================================================== */
+.tabs { display: flex; gap: 3px; }
+.tab {
+  background: none; border: 1px solid transparent; color: var(--text-dim);
+  border-radius: 6px; padding: 4px 11px; cursor: pointer; font-size: 0.78rem;
+}
+.tab:hover { color: var(--text); background: var(--panel-2); }
+.tab[aria-selected="true"] {
+  color: var(--accent); border-color: var(--accent-dim); background: var(--panel-2);
+}
+.view { display: none; flex: 1; min-height: 0; overflow: auto; }
+.view.active { display: block; }
+
+/* ===== Control-flow graph =========================================== */
+.cfg-wrap { padding: 16px; }
+.cfg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+
+.cfg-box {
+  fill: var(--panel-2); stroke: var(--border); stroke-width: 1;
+  transition: stroke .12s, fill .12s;
+}
+.cfg-box.loop { stroke: var(--notable); stroke-width: 1.6; }
+.cfg-node { cursor: pointer; }
+.cfg-node:hover .cfg-box { stroke: var(--accent); fill: var(--panel-3); }
+.cfg-node:focus-visible .cfg-box { stroke: var(--accent); stroke-width: 2; }
+.cfg-node.active .cfg-box { stroke: var(--accent); stroke-width: 2; fill: var(--panel-3); }
+
+.cfg-title { fill: var(--accent); font: 600 11px var(--mono); }
+.cfg-range { fill: var(--text-faint); font: 10px var(--mono); }
+.cfg-ins   { fill: var(--text-dim); font: 11px var(--mono); }
+.cfg-more  { fill: var(--text-faint); font: italic 10px var(--mono); }
+
+.cfg-ins.cat-data    { fill: var(--cat-data); }
+.cfg-ins.cat-arith   { fill: var(--cat-arith); }
+.cfg-ins.cat-logic   { fill: var(--cat-logic); }
+.cfg-ins.cat-stack   { fill: var(--cat-stack); }
+.cfg-ins.cat-control { fill: var(--cat-control); }
+.cfg-ins.cat-compare { fill: var(--cat-compare); }
+.cfg-ins.cat-system  { fill: var(--cat-system); }
+
+.cfg-legend {
+  display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+  padding: 14px 10px 4px; font-size: 0.72rem; color: var(--text-faint);
+}
+.cfg-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cfg-legend i { width: 16px; height: 2px; border-radius: 2px; display: inline-block; }
+.cfg-legend i.dash {
+  background: repeating-linear-gradient(90deg, var(--notable) 0 5px, transparent 5px 8px);
+}
+
+/* ===== Stack frame ================================================== */
+.frame-head {
+  display: flex; gap: 0; flex-wrap: wrap; padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.frame-head > div {
+  display: flex; align-items: baseline; gap: 7px;
+  padding-right: 18px; margin-right: 18px; border-right: 1px solid var(--border-soft);
+}
+.frame-head > div:last-child { border-right: 0; }
+.frame-head .v { color: var(--accent); font-weight: 700; }
+.frame-head .k { font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
+
+.frame-note { margin: 12px 18px 10px; font-size: 0.78rem; color: var(--text-faint); }
+.frame-list { padding: 0 18px 30px; }
+
+.frame-slot {
+  display: grid;
+  grid-template-columns: 7.5em 1fr auto auto;
+  gap: 12px; align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--cat-other);
+  border-radius: 7px; padding: 8px 12px; margin-bottom: 5px;
+}
+.frame-slot.implied { opacity: .72; border-style: dashed; }
+.frame-slot.role-argument { border-left-color: var(--cat-data); }
+.frame-slot.role-local    { border-left-color: var(--cat-arith); }
+.frame-slot.role-saved    { border-left-color: var(--cat-stack); }
+.frame-slot.role-return   { border-left-color: var(--warn); }
+.frame-slot.role-outgoing { border-left-color: var(--cat-string); }
+.frame-slot.role-scratch  { border-left-color: var(--cat-other); }
+
+.frame-addr { color: var(--accent); font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+.frame-body { min-width: 0; }
+.frame-name { display: block; color: var(--text); font-size: 0.87rem; }
+.frame-detail { display: block; color: var(--text-faint); font-size: 0.74rem; line-height: 1.45; }
+.frame-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.frame-size { color: var(--text-dim); font-size: 0.74rem; }
+.frame-role {
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-faint); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px;
+}
+.frame-refs { display: flex; gap: 4px; flex-wrap: wrap; max-width: 12em; justify-content: flex-end; }
+.frame-ref {
+  background: var(--panel-3); border: 1px solid var(--border);
+  color: var(--text-dim); border-radius: 4px; padding: 1px 6px;
+  font-size: 0.68rem; cursor: pointer;
+}
+.frame-ref:hover { border-color: var(--accent); color: var(--accent); }
+.frame-ref.w { color: var(--notable); }
+.frame-gap {
+  text-align: center; font-size: 0.7rem; color: var(--text-faint);
+  padding: 3px 0 5px; font-style: italic;
+}
+
+/* ===== Bytes input panel ============================================ */
+.bytes-panel { padding: 14px; display: none; flex-direction: column; gap: 11px; overflow: auto; }
+.bytes-panel.active { display: flex; }
+.editor-wrap.hidden { display: none; }
+
+.bytes-panel textarea {
+  width: 100%; min-height: 150px; resize: vertical;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 11px;
+  font-family: var(--mono); font-size: 13px; line-height: 1.5;
+}
+.bytes-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.bytes-row label { font-size: 0.68rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em; }
+.bytes-row input[type="text"] {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 7px; padding: 6px 10px; width: 8em;
+}
+.bytes-hint { font-size: 0.74rem; color: var(--text-faint); line-height: 1.55; }
+.bytes-hint code { color: var(--text-dim); }
+.drop-zone {
+  border: 1.5px dashed var(--border); border-radius: 9px;
+  padding: 18px; text-align: center; color: var(--text-faint);
+  font-size: 0.8rem; cursor: pointer; transition: border-color .15s, background .15s;
+}
+.drop-zone:hover, .drop-zone.over { border-color: var(--accent); background: var(--accent-glow); color: var(--text); }

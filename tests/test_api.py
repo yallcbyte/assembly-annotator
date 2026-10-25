@@ -100,3 +100,55 @@ def test_export_rejects_unknown_format(client):
 def test_json_export_round_trips(client):
     r = client.post('/api/export/json', json={'code': 'nop'})
     assert json.loads(r.data)['stats']['instructions'] == 1
+
+
+# ---- disassembly endpoint ----------------------------------------------
+
+SHELLCODE_HEX = '31c050682f2f7368682f62696e89e3b00bcd80'
+
+
+def test_disassemble_hex(client):
+    r = client.post('/api/disassemble',
+                    json={'hex': SHELLCODE_HEX, 'arch': 'x86', 'bits': 32})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['instructions'] == 7
+    assert 'xor eax, eax' in body['text']
+
+
+def test_disassembled_output_feeds_straight_back_into_annotate(client):
+    text = client.post('/api/disassemble',
+                       json={'hex': SHELLCODE_HEX, 'bits': 32}).get_json()['text']
+    body = client.post('/api/annotate', json={'code': text}).get_json()
+    assert body['stats']['unknown_mnemonics'] == []
+    assert 'execve' in body['stats']['syscalls']
+
+
+def test_disassemble_rejects_bad_hex(client):
+    r = client.post('/api/disassemble', json={'hex': 'not hex at all'})
+    assert r.status_code == 400
+    assert 'hex' in r.get_json()['error'].lower()
+
+
+def test_disassemble_rejects_empty_input(client):
+    assert client.post('/api/disassemble', json={'hex': ''}).status_code == 400
+
+
+def test_disassemble_honours_the_base_address(client):
+    body = client.post('/api/disassemble',
+                       json={'hex': SHELLCODE_HEX, 'bits': 32,
+                             'base': '0x400000'}).get_json()
+    assert body['text'].startswith('00400000:')
+
+
+def test_disassemble_rejects_a_non_numeric_base(client):
+    r = client.post('/api/disassemble', json={'hex': SHELLCODE_HEX, 'base': 'xyz'})
+    assert r.status_code == 400
+
+
+def test_annotate_now_returns_blocks_and_frame(client):
+    body = client.post('/api/annotate', json={
+        'code': 'f:\n push ebp\n mov ebp, esp\n mov eax, [ebp+8]\n pop ebp\n ret'}).get_json()
+    assert body['cfg']['blocks'] and body['cfg']['block_edges'] == []
+    assert body['frame']['has_frame'] is True
+    assert body['stats']['blocks'] == 1

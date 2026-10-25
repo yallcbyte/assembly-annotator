@@ -15,6 +15,12 @@
     arch: $('archSel'), syntax: $('syntaxSel'), verb: $('verbSel'), theme: $('themeSel'),
     splitter: $('splitter'), leftPane: $('leftPane'), panes: $('panes'),
     help: $('helpDialog'),
+    editorWrap: document.querySelector('.editor-wrap'),
+    bytesPanel: $('bytesPanel'), bytesInput: $('bytesInput'), bytesHint: $('bytesHint'),
+    byteArch: $('byteArch'), byteBits: $('byteBits'), byteBase: $('byteBase'),
+    disasmBtn: $('disasmBtn'), dropZone: $('dropZone'), fileInput: $('fileInput'),
+    filterBar: $('filterBar'),
+    viewGraph: $('viewGraph'), viewFrame: $('viewFrame'),
   };
 
   const store = {
@@ -25,7 +31,10 @@
     set(k, v) { try { localStorage.setItem('asmann.' + k, v); } catch { /* private mode */ } },
   };
 
-  let state = { result: null, highlightLines: new Set(), activePattern: null, allOpen: false };
+  let state = {
+    result: null, highlightLines: new Set(), activePattern: null,
+    allOpen: false, view: 'lines', mode: 'asm',
+  };
 
   /* ---- syntax highlighting ---------------------------------------- */
   const MNEMONIC = /^(?:[a-z][a-z0-9.]{1,9})$/i;
@@ -129,6 +138,7 @@
       renderStats(data);
       renderAnnotations(data);
       renderPatterns(data);
+      renderActiveView();
       renderEditor();
       el.detectHint.textContent = `${data.meta.arch} · ${data.meta.syntax}`;
       store.set('code', code);
@@ -340,6 +350,104 @@
     });
   }
 
+  /* ---- view switching --------------------------------------------------- */
+  function setView(name) {
+    state.view = name;
+    document.querySelectorAll('[data-view]').forEach((t) =>
+      t.setAttribute('aria-selected', String(t.dataset.view === name)));
+    el.annotations.hidden = name !== 'lines';
+    el.filterBar.hidden = name !== 'lines';
+    el.expand.hidden = name !== 'lines';
+    // `.view` is display:none until it carries `.active`; `hidden` alone
+    // is not enough because the class rule wins on specificity.
+    el.viewGraph.hidden = name !== 'graph';
+    el.viewFrame.hidden = name !== 'frame';
+    el.viewGraph.classList.toggle('active', name === 'graph');
+    el.viewFrame.classList.toggle('active', name === 'frame');
+    renderActiveView();
+  }
+
+  function renderActiveView() {
+    if (!state.result || !window.AsmViews) return;
+    if (state.view === 'graph') {
+      AsmViews.renderGraph(el.viewGraph, state.result, (block) => {
+        state.highlightLines = new Set(block.lines);
+        document.querySelectorAll('.cfg-node').forEach((n) =>
+          n.classList.toggle('active', Number(n.dataset.block) === block.id));
+        renderEditor();
+      });
+    } else if (state.view === 'frame') {
+      AsmViews.renderFrame(el.viewFrame, state.result, (line) => {
+        setView('lines');
+        scrollToLine(line);
+      });
+    }
+  }
+
+  /* ---- bytes mode --------------------------------------------------------- */
+  function setMode(mode) {
+    state.mode = mode;
+    document.querySelectorAll('[data-mode]').forEach((t) =>
+      t.setAttribute('aria-selected', String(t.dataset.mode === mode)));
+    el.editorWrap.classList.toggle('hidden', mode !== 'asm');
+    el.bytesPanel.classList.toggle('active', mode === 'bytes');
+    if (mode === 'bytes') el.bytesInput.focus();
+  }
+
+  function describeDisassembly(info) {
+    const bits = [`${info.instructions} instructions from ${info.bytes} bytes`];
+    if (info.container === 'elf') bits.push(info.note);
+    if (info.skipped_data) bits.push(`${info.skipped_data} byte(s) were not valid code`);
+    if (info.undecoded_bytes) bits.push(`${info.undecoded_bytes} trailing byte(s) undecoded`);
+    el.bytesHint.textContent = bits.join(' \u00b7 ');
+  }
+
+  async function runDisassembly(body, isForm) {
+    el.disasmBtn.disabled = true;
+    el.disasmBtn.textContent = 'Working\u2026';
+    try {
+      const res = await fetch('/api/disassemble',
+        isForm ? { method: 'POST', body }
+               : { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                   body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) { el.bytesHint.textContent = data.error || 'Disassembly failed.'; return; }
+      describeDisassembly(data);
+      el.code.value = data.text;
+      // The disassembler already knows the architecture; don't re-guess it.
+      el.arch.value = data.arch === 'thumb' ? 'arm' : data.arch;
+      el.syntax.value = 'intel';
+      setMode('asm');
+      renderEditor();
+      analyze();
+    } catch (err) {
+      el.bytesHint.textContent = err.message || 'Could not reach the server.';
+    } finally {
+      el.disasmBtn.disabled = false;
+      el.disasmBtn.textContent = 'Disassemble';
+    }
+  }
+
+  function disassembleHex() {
+    const hex = el.bytesInput.value;
+    if (!hex.trim()) { toast('Paste some bytes first.'); return; }
+    runDisassembly({
+      hex, arch: el.byteArch.value,
+      bits: Number(el.byteBits.value), base: el.byteBase.value || '0x1000',
+    }, false);
+  }
+
+  function disassembleFile(file) {
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    form.append('arch', el.byteArch.value);
+    form.append('bits', el.byteBits.value);
+    form.append('base', el.byteBase.value || '0x1000');
+    el.bytesHint.textContent = `Reading ${file.name}\u2026`;
+    runDisassembly(form, true);
+  }
+
   /* ---- splitter -------------------------------------------------------- */
   function initSplitter() {
     let dragging = false;
@@ -485,6 +593,33 @@
           .forEach((n) => n.classList.remove('active', 'hit'));
         renderEditor();
       }
+    });
+
+    document.querySelectorAll('[data-view]').forEach((t) =>
+      t.addEventListener('click', () => setView(t.dataset.view)));
+    document.querySelectorAll('[data-mode]').forEach((t) =>
+      t.addEventListener('click', () => setMode(t.dataset.mode)));
+
+    el.disasmBtn.addEventListener('click', disassembleHex);
+    el.bytesInput.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); disassembleHex(); }
+    });
+    el.dropZone.addEventListener('click', () => el.fileInput.click());
+    el.dropZone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.fileInput.click(); }
+    });
+    el.fileInput.addEventListener('change', () => disassembleFile(el.fileInput.files[0]));
+    ['dragenter', 'dragover'].forEach((ev) =>
+      el.dropZone.addEventListener(ev, (e) => {
+        e.preventDefault(); el.dropZone.classList.add('over');
+      }));
+    ['dragleave', 'drop'].forEach((ev) =>
+      el.dropZone.addEventListener(ev, (e) => {
+        e.preventDefault(); el.dropZone.classList.remove('over');
+      }));
+    el.dropZone.addEventListener('drop', (e) => {
+      const file = e.dataTransfer && e.dataTransfer.files[0];
+      if (file) disassembleFile(file);
     });
 
     initSplitter();

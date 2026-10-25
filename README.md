@@ -37,6 +37,22 @@ to highlight those lines in both panes.
 every branch shows where it goes, backward jumps are marked as loops, and code
 nothing reaches is flagged as unreachable.
 
+**Three views of the same listing.** *Lines* is the annotated listing. *Graph*
+draws the control-flow graph as basic blocks, with branch-taken, fall-through,
+unconditional and back edges each drawn differently. *Stack* reconstructs the
+frame: which slot is which argument, which are locals, where the saved frame
+pointer and return address sit, and which lines read or write each one.
+
+![Control-flow graph](docs/screenshot-graph.png)
+
+**Bytes in, not just text.** Switch the source pane to *Bytes* and paste raw
+machine code - plain hex, `\x` escapes, a C array, `xxd` or `hexdump -C` output
+all parse. Or drop in a binary: ELF files have their `.text` section extracted
+automatically, with the real virtual address as the base. Capstone does the
+disassembly, and the result is annotated like any other listing.
+
+![Stack frame](docs/screenshot-frame.png)
+
 ---
 
 ## Input it understands
@@ -49,6 +65,8 @@ nothing reaches is flagged as unreachable.
 | Intel syntax | `mov eax, 1` |
 | AT&T syntax | `movl $1, %eax` — operands are flipped so explanations read the same way |
 | objdump / gdb | addresses, opcode bytes and `<function>:` headers are parsed and dimmed |
+| Raw bytes | hex, `\x` escapes, C arrays, `xxd` and `hexdump -C` dumps |
+| ELF binaries | `.text` is located and disassembled at its real load address |
 | NASM / GAS | sections, `global`, data definitions, `;` `#` and `//` comments |
 
 Architecture and syntax are auto-detected; both can be forced from the toolbar.
@@ -62,6 +80,7 @@ Architecture and syntax are auto-detected; both can be forced from the toolbar.
 - **Three detail levels** — *brief* for a quick pass, *normal*, or *verbose*,
   which adds tracked register values and flag effects.
 - **Filter** — type `jmp`, `stack` or `syscall` to narrow the annotations.
+- **Three views** — annotated lines, control-flow graph, stack frame.
 - **Four themes** — terminal, midnight, amber and light.
 - **Export** — Markdown report, aligned plain text, full JSON (including the
   control-flow graph), or copy to the clipboard.
@@ -96,7 +115,8 @@ python3 -m venv .venv
 .venv/bin/python app.py          # PORT=8080 to change the port
 ```
 
-Requires Python 3.9+ and Flask.
+Requires Python 3.9+ and Flask. Install `capstone` as well to enable the
+*Bytes* input mode; without it the rest of the app works unchanged.
 
 ---
 
@@ -107,7 +127,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-90 tests cover parsing, explanation, pattern detection, control flow and the
+147 tests cover parsing, explanation, pattern detection, control flow and the
 HTTP API, including a check that every bundled example is fully recognised.
 
 ---
@@ -117,6 +137,7 @@ HTTP API, including a check that every bundled example is fully recognised.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/annotate` | Analyze a listing. Body: `{code, arch?, syntax?, verbosity?}` |
+| `POST` | `/api/disassemble` | Bytes to assembly. JSON `{hex, arch?, bits?, base?}`, or a multipart `file` |
 | `POST` | `/api/export/{md,txt,json}` | Same analysis as a downloadable report |
 | `GET` | `/api/examples` · `/api/examples/<id>` | Bundled examples |
 | `GET` | `/api/instruction/<mnemonic>` | Instruction reference entry |
@@ -142,13 +163,15 @@ annotator/
   syscalls.py    Linux x86 / x86-64 / AArch64 syscall tables
   explain.py     operand-aware sentences, idiom recognition, register tracking
   patterns.py    pattern engine with severities and line evidence
-  cfg.py         branch resolution, loop headers, unreachable code
+  cfg.py         branch resolution, loop headers, unreachable code, basic blocks
+  frames.py      stack frame layout: arguments, locals, saved pointer, return address
+  disasm.py      hex and ELF parsing, Capstone disassembly
   analyzer.py    orchestration and summary statistics
   examples.py    bundled sample listings
 app.py           Flask routes and report rendering
 static/          one stylesheet, one script
 templates/       one page
-tests/           90 tests
+tests/           147 tests
 ```
 
 ### Adding an instruction

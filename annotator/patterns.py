@@ -142,11 +142,31 @@ def _hardcoded_constants(ctx):
 
 
 def _self_modifying(ctx):
-    """Writes to memory addressed off the instruction pointer."""
-    return [l.index for l in ctx.instructions
-            if l.mnemonic in ('mov', 'stosb', 'stosd', 'xor', 'add', 'sub')
-            and l.operands and l.operands[0].kind == 'memory'
-            and re.search(r'\b[er]ip\b', l.operands[0].text, re.I)]
+    """Stores aimed at an address this listing also executes.
+
+    RIP-relative addressing is NOT a signal here: `mov [rip+0x2efd], 1` is the
+    ordinary way 64-bit code reaches a global, and treating it as tampering
+    flags almost every modern binary. We look instead for a store whose target
+    names a label that is branched to, i.e. code being overwritten.
+    """
+    labels = {n.lower() for n in ctx.cfg.get('labels', {})}
+    branched_to = {e.get('target', '').lower()
+                   for e in ctx.cfg.get('edges', []) if e.get('target')}
+    executed = labels & branched_to
+    if not executed:
+        return []
+    hits = []
+    for l in ctx.instructions:
+        if l.mnemonic not in ('mov', 'stosb', 'stosd', 'stosw', 'xor', 'add', 'sub', 'or'):
+            continue
+        if not l.operands or l.operands[0].kind != 'memory':
+            continue
+        # Split the operand into identifier tokens instead of substring
+        # matching, so a label `go` does not match `[ebp+goto_table]`.
+        tokens = set(re.split('[^0-9A-Za-z_.$@]+', l.operands[0].text.lower()))
+        if tokens & executed:
+            hits.append(l.index)
+    return hits
 
 
 def _stack_strings(ctx):
@@ -304,8 +324,15 @@ PATTERNS = [
             'it is rewriting itself as it runs.',
             'warning', 'obfuscation', custom=_self_modifying),
     Pattern('privileged', 'Privileged Instructions',
-            'Instructions that only run in kernel mode — driver, bootloader or rootkit territory.',
-            'warning', 'system', any_of=['cli', 'sti', 'hlt', 'lgdt', 'lidt', 'invd', 'wrmsr', 'rdmsr']),
+            'Instructions that only run in ring 0 - driver, bootloader or rootkit '
+            'territory. In a user-space program these would fault.',
+            'warning', 'system',
+            any_of=['lgdt', 'lidt', 'ltr', 'lmsw', 'clts', 'invd', 'invlpg',
+                    'wrmsr', 'rdmsr', 'cli', 'sti']),
+    Pattern('halt', 'Halt Instruction',
+            'A HLT. Compilers emit one after a call that never returns, so on its own '
+            'this is usually just a trap rather than anything privileged.',
+            'info', 'system', any_of=['hlt']),
     Pattern('atomic', 'Atomic / Concurrent Access',
             'A LOCK prefix or compare-and-swap — shared state touched from several threads.',
             'info', 'system', any_of=['lock', 'cmpxchg', 'xadd']),

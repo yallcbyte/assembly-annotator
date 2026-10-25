@@ -85,6 +85,10 @@
     <section class="pane left" id="leftPane" aria-label="Assembly input">
       <div class="pane-head">
         <h2>Source</h2>
+        <div class="tabs" role="tablist" aria-label="Input mode">
+          <button class="tab" id="modeAsm" role="tab" aria-selected="true" data-mode="asm">Assembly</button>
+          <button class="tab" id="modeBytes" role="tab" aria-selected="false" data-mode="bytes">Bytes</button>
+        </div>
         <span class="spacer"></span>
         <span class="hint" id="detectHint"></span>
         <button class="btn icon" id="clearBtn" title="Clear the editor">Clear</button>
@@ -99,6 +103,42 @@
             placeholder="; paste assembly here, then press Ctrl+Enter&#10;;&#10;; NASM, GAS/AT&amp;T, objdump output, x86, x86-64, ARM and MIPS all work."></textarea>
         </div>
       </div>
+
+      <div class="bytes-panel" id="bytesPanel">
+        <textarea id="bytesInput" spellcheck="false" autocomplete="off"
+          aria-label="Machine code bytes"
+          placeholder="31 c0 50 68 2f 2f 73 68 68 2f 62 69 6e 89 e3 b0 0b cd 80&#10;&#10;Hex, \x escapes, a C array, xxd or hexdump -C output all work."></textarea>
+
+        <div class="bytes-row">
+          <label for="byteArch">Arch</label>
+          <select id="byteArch">
+            <option value="x86">x86</option>
+            <option value="arm">ARM</option>
+            <option value="thumb">Thumb</option>
+            <option value="mips">MIPS</option>
+          </select>
+          <label for="byteBits">Bits</label>
+          <select id="byteBits">
+            <option value="16">16</option>
+            <option value="32" selected>32</option>
+            <option value="64">64</option>
+          </select>
+          <label for="byteBase">Base</label>
+          <input type="text" id="byteBase" value="0x1000" spellcheck="false">
+          <button class="btn primary" id="disasmBtn">Disassemble</button>
+        </div>
+
+        <div class="drop-zone" id="dropZone" role="button" tabindex="0">
+          Drop a binary here, or click to choose one.
+          <br>ELF files have their <code>.text</code> section extracted automatically.
+        </div>
+        <input type="file" id="fileInput" hidden>
+
+        <p class="bytes-hint" id="bytesHint">
+          Pasted bytes are disassembled with Capstone, then annotated like any other
+          listing. Nothing is uploaded anywhere beyond this local server.
+        </p>
+      </div>
     </section>
 
     <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" tabindex="0"
@@ -106,15 +146,21 @@
 
     <section class="pane right" aria-label="Annotations">
       <div class="pane-head">
-        <h2>Annotated explanation</h2>
+        <div class="tabs" role="tablist" aria-label="View">
+          <button class="tab" role="tab" aria-selected="true" data-view="lines">Lines</button>
+          <button class="tab" role="tab" aria-selected="false" data-view="graph">Graph</button>
+          <button class="tab" role="tab" aria-selected="false" data-view="frame">Stack</button>
+        </div>
         <span class="spacer"></span>
         <button class="btn icon" id="expandBtn" title="Expand or collapse every note">Expand all</button>
       </div>
-      <div class="filter-bar">
+      <div class="filter-bar" id="filterBar">
         <input id="filterInput" type="search" placeholder="Filter lines — try `jmp`, `stack`, `syscall`"
                aria-label="Filter annotations">
         <span class="count" id="filterCount"></span>
       </div>
+      <div class="view" id="viewGraph" hidden></div>
+      <div class="view" id="viewFrame" hidden></div>
       <div class="annotations" id="annotations">
         <div class="empty">
           <strong>Nothing analysed yet</strong>
@@ -158,6 +204,7 @@
   </div>
 </dialog>
 
+<script src="{{ url_for('static', filename='js/views.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

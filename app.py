@@ -8,7 +8,7 @@ import os
 from flask import Flask, Response, jsonify, render_template, request
 
 from annotator import InputTooLarge, MAX_INPUT_CHARS, analyse, __version__
-from annotator import isa, registers
+from annotator import disasm, isa, registers
 from annotator.examples import BY_ID, EXAMPLES
 
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +55,57 @@ def create_app(config=None):
             app.logger.exception('analysis failed')
             return jsonify({'error': 'Analysis failed. Please check the input.'}), 500
         return jsonify(result)
+
+    @app.post('/api/disassemble')
+    def disassemble():
+        """Raw bytes (hex, a dump, or an uploaded file) -> assembly text."""
+        arch = request.form.get('arch') or 'x86'
+        bits = request.form.get('bits') or '32'
+        base = request.form.get('base') or '0x1000'
+        upload = request.files.get('file')
+
+        if upload is None:
+            data = request.get_json(silent=True) or {}
+            arch = data.get('arch') or 'x86'
+            bits = data.get('bits') or 32
+            base = data.get('base') or 0x1000
+            try:
+                raw = disasm.parse_hex(data.get('hex', ''))
+            except disasm.DisasmError as exc:
+                return jsonify({'error': str(exc)}), 400
+            container = disasm.Binary(raw, 0, None, None, 'raw')
+        else:
+            blob = upload.read(disasm.MAX_BYTES + 1)
+            if len(blob) > disasm.MAX_BYTES:
+                return jsonify({'error': f'File is over the {disasm.MAX_BYTES} byte limit.'}), 413
+            try:
+                container = disasm.load(blob)
+            except disasm.DisasmError as exc:
+                return jsonify({'error': str(exc)}), 400
+
+        try:
+            bits = int(bits, 0) if isinstance(bits, str) else int(bits)
+            base = int(str(base), 0)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Bit width and base address must be numbers.'}), 400
+
+        # An ELF tells us its own architecture; trust that over the form value.
+        if container.arch:
+            arch, bits = container.arch, container.bits
+        if container.base:
+            base = container.base
+
+        try:
+            out = disasm.disassemble(container.data, arch, bits, base)
+        except disasm.DisasmError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception:
+            app.logger.exception('disassembly failed')
+            return jsonify({'error': 'Disassembly failed.'}), 500
+
+        out['container'] = container.source
+        out['note'] = container.note
+        return jsonify(out)
 
     @app.get('/api/examples')
     def list_examples():
@@ -115,7 +166,8 @@ def create_app(config=None):
     @app.get('/api/health')
     def health():
         return jsonify({'status': 'ok', 'version': __version__,
-                        'instructions': len(isa.X86) + len(isa.ARM) + len(isa.MIPS)})
+                        'instructions': len(isa.X86) + len(isa.ARM) + len(isa.MIPS),
+                        'disassembler': disasm.AVAILABLE})
 
     @app.errorhandler(404)
     def not_found(_):

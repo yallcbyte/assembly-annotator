@@ -2,7 +2,7 @@
 
 from collections import Counter
 
-from . import cfg as cfg_mod, isa, patterns as patterns_mod
+from . import cfg as cfg_mod, frames as frames_mod, isa, patterns as patterns_mod
 from .explain import Explainer
 from .parser import parse
 
@@ -50,7 +50,10 @@ def analyse(code: str, arch=None, syntax=None, verbosity='normal'):
                 f'Branch target `{item["target"]}` is not defined in this listing.')
 
     detected = patterns_mod.detect(lines, meta, graph)
+    blocks = cfg_mod.basic_blocks(lines, graph)
+    frame = frames_mod.analyse_frame(lines, meta['arch'])
     stats = _summarise(annotations, meta, graph, detected)
+    stats['blocks'] = len(blocks['blocks'])
 
     return {
         'meta': meta,
@@ -62,7 +65,10 @@ def analyse(code: str, arch=None, syntax=None, verbosity='normal'):
             'loop_headers': graph['loop_headers'],
             'unreachable': graph['unreachable'],
             'functions': graph['functions'],
+            'blocks': blocks['blocks'],
+            'block_edges': blocks['edges'],
         },
+        'frame': frame,
         'stats': stats,
     }
 

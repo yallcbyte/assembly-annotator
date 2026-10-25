@@ -94,3 +94,25 @@ def test_objdump_paste_is_recognised_end_to_end():
 def test_64bit_epilogue_is_detected():
     assert 'Function Epilogue (64-bit)' in names('pop rbp\nret')
     assert 'Function Epilogue (64-bit)' in names('popq %rbp\nret')
+
+
+def test_rip_relative_global_write_is_not_self_modifying_code():
+    # `mov [rip+0x2efd], 1` is how 64-bit code reaches a global. Flagging it
+    # marked almost every compiled binary as self-modifying.
+    assert 'Self-Modifying Code' not in names('mov byte ptr [rip + 0x2efd], 1\nret')
+
+
+def test_genuine_self_modification_is_still_caught():
+    src = 'start:\n  mov byte [patch_me], 0x90\n  jmp patch_me\npatch_me:\n  nop\n  ret'
+    assert 'Self-Modifying Code' in names(src)
+
+
+def test_hlt_is_not_reported_as_privileged():
+    # gcc emits HLT after a noreturn call; it is not rootkit territory.
+    found = names('call exit\nhlt')
+    assert 'Privileged Instructions' not in found
+    assert 'Halt Instruction' in found
+
+
+def test_genuinely_privileged_instructions_are_still_flagged():
+    assert 'Privileged Instructions' in names('wrmsr\nlgdt [table]')
