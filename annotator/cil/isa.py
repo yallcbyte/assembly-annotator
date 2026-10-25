@@ -350,9 +350,19 @@ class Signature(NamedTuple):
         return f'{self.type_name}::{self.method}' if self.type_name else self.method
 
     @property
+    def accessor(self):
+        """('get'|'set', PropertyName) for a compiled C# property, else None."""
+        for prefix in ('get_', 'set_'):
+            if self.method.startswith(prefix) and len(self.method) > 4:
+                return prefix[:3], self.method[4:]
+        return None
+
+    @property
     def short(self) -> str:
         owner = self.type_name.rsplit('.', 1)[-1] if self.type_name else ''
-        return f'{owner}.{self.method}' if owner else self.method
+        # Show `Environment.UserName`, not the compiler's `get_UserName`.
+        name = self.accessor[1] if self.accessor else self.method
+        return f'{owner}.{name}' if owner else name
 
     @property
     def arg_count(self) -> int:

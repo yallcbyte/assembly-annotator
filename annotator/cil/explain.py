@@ -158,6 +158,18 @@ class CilExplainer:
                     'notes': ['Usually a delegate being built.'], 'signature': sig}
 
         shown = ', '.join(self.describe(a) for a in args) if args else ''
+        if sig.accessor and sig.accessor[0] == 'get' and not args:
+            title = f'Read {sig.short}'
+            if sig.instance and receiver is not None:
+                title = f'Read {sig.accessor[1]} from {self.describe(receiver)}'
+            self._push(Value('result', sig.short, line.index))
+            return {'title': title, 'signature': sig,
+                    'notes': [f'A property read; compiles to {sig.method}().']}
+        if sig.accessor and sig.accessor[0] == 'set' and len(args) == 1:
+            target = (f'{sig.accessor[1]} on {self.describe(receiver)}'
+                      if sig.instance and receiver is not None else sig.short)
+            return {'title': f'Set {target} to {self.describe(args[0])}', 'signature': sig,
+                    'notes': [f'A property write; compiles to {sig.method}().']}
         if sig.instance and receiver is not None:
             title = f'Call {sig.short} on {self.describe(receiver)}'
             if shown:

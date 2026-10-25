@@ -18,7 +18,7 @@ def _forms(target: str):
     appears in IL as `Debugger::get_IsAttached`. Matching both spellings means
     rules can be written the way a reader would say them.
     """
-    low = target.lower()
+    low = target.lower().replace('\\\\', '\\')
     stripped = low.replace('::get_', '::').replace('::set_', '::')
     return (low,) if stripped == low else (low, stripped)
 
@@ -98,10 +98,10 @@ RULES = [
             apis=['System.Diagnostics.Process::Start', 'ProcessStartInfo::',
                   'Process::GetProcesses']),
     ApiRule('shell_exec', 'Shell / Script Execution',
-            'Invokes a command interpreter. Anything passed to it runs with this '
-            'process’s privileges.',
+            'Names a command interpreter. Anything passed to it runs with this '
+            'process\u2019s privileges.',
             'warning', 'execution',
-            apis=['cmd.exe', 'powershell', '/bin/sh', 'bash', 'WScript.Shell']),
+            apis=['cmd.exe', 'powershell', '/bin/sh', '/bin/bash', 'wscript.shell']),
 
     # ---- network ----------------------------------------------------
     ApiRule('net_download', 'Network Download',
@@ -134,12 +134,12 @@ RULES = [
             apis=['Assembly::Load', 'Assembly::LoadFrom', 'Assembly::LoadFile',
                   'Assembly::UnsafeLoadFrom', 'AppDomain::Load']),
     ApiRule('reflection_invoke', 'Reflective Invocation',
-            'Calls a method chosen at run time by name. This hides the real call '
-            'target from any static call graph, including this one.',
-            'warning', 'loader',
-            apis=['MethodBase::Invoke', 'MethodInfo::Invoke',
-                  'Activator::CreateInstance', 'Type::InvokeMember',
-                  'Type::GetMethod', 'Type::GetType', 'ConstructorInfo::Invoke']),
+            'Calls a method chosen at run time. Common in plugin hosts and dependency '
+            'injection, so on its own it is only notable; paired with Assembly.Load it '
+            'becomes the Reflective Loader Chain.',
+            'notable', 'loader',
+            apis=['MethodBase::Invoke', 'MethodInfo::Invoke', 'ConstructorInfo::Invoke',
+                  'Type::InvokeMember', 'Activator::CreateInstance']),
     ApiRule('dynamic_code', 'Runtime Code Generation',
             'Emits IL at run time. Legitimate in serializers and ORMs, and a strong '
             'obfuscation signal everywhere else.',
@@ -168,10 +168,10 @@ RULES = [
             'notable', 'persistence',
             apis=['Microsoft.Win32.Registry', 'RegistryKey::']),
     ApiRule('startup_persistence', 'Startup Persistence',
-            'Touches a Run key or a startup folder, which makes the program survive '
+            'Names a Run key or the Startup folder, which makes a program survive '
             'a reboot.',
             'warning', 'persistence',
-            apis=['CurrentVersion\\\\Run', 'Startup', 'SpecialFolder::Startup']),
+            apis=['currentversion\\run', 'start menu\\programs\\startup']),
     ApiRule('file_write', 'File System Writes',
             'Creates or modifies files. Dropping a payload looks like this.',
             'notable', 'filesystem',
@@ -192,17 +192,15 @@ RULES = [
             apis=['Debugger::IsAttached', 'Debugger::IsLogging', 'Debugger::Break',
                   'CheckRemoteDebuggerPresent', 'IsDebuggerPresent']),
     ApiRule('vm_detect', 'VM / Sandbox Detection',
-            'Queries WMI or machine identity, a common way to spot an analysis VM and '
-            'stay dormant inside one.',
+            'Queries WMI, the usual way to fingerprint an analysis VM and stay dormant '
+            'inside one.',
             'warning', 'anti-analysis',
-            apis=['ManagementObjectSearcher', 'ManagementClass', 'ManagementObject',
-                  'Environment::MachineName', 'Environment::UserName',
-                  'Environment::ProcessorCount', 'SystemInformation::']),
+            apis=['ManagementObjectSearcher', 'ManagementClass::', 'ManagementObject::']),
     ApiRule('sleep_evasion', 'Execution Delay',
-            'Sleeps before doing anything. Sandboxes give a sample limited time, so '
-            'a long delay can outlast the analysis window.',
-            'notable', 'anti-analysis',
-            apis=['Thread::Sleep', 'Task::Delay', 'Stopwatch::']),
+            'Sleeps the thread. A long delay can outlast a sandbox\u2019s analysis '
+            'window; a short one is usually just polling.',
+            'info', 'anti-analysis',
+            apis=['Thread::Sleep']),
 
     # ---- native interop ------------------------------------------------------
     ApiRule('pinvoke', 'P/Invoke Declaration',
@@ -228,26 +226,32 @@ RULES = [
             'info', 'obfuscation', opcodes=['ldftn', 'ldvirtftn']),
 
     # ---- data theft ------------------------------------------------------------
-    ApiRule('clipboard_input', 'Clipboard / Input Capture',
-            'Reads the clipboard or keyboard state — the core of a keylogger or '
-            'clipper.',
+    ApiRule('keyboard_hook', 'Keyboard Capture',
+            'Reads key state or installs an input hook \u2014 the core of a keylogger.',
             'warning', 'collection',
-            apis=['Clipboard::', 'GetAsyncKeyState', 'GetKeyboardState', 'SetWindowsHookEx']),
+            apis=['GetAsyncKeyState', 'GetKeyboardState', 'SetWindowsHookEx']),
+    ApiRule('clipboard_read', 'Clipboard Read',
+            'Reads the clipboard. Ordinary for a paste action; a clipper reads it '
+            'repeatedly to swap out copied wallet addresses.',
+            'notable', 'collection',
+            apis=['Clipboard::GetText', 'Clipboard::GetData', 'Clipboard::GetDataObject']),
     ApiRule('screen_capture', 'Screen Capture',
             'Takes a screenshot.', 'warning', 'collection',
             apis=['CopyFromScreen', 'Graphics::CopyFromScreen', 'BitBlt']),
     ApiRule('credential_paths', 'Credential Store Access',
-            'Reads a browser or mail-client profile, where saved credentials live.',
+            'Names a browser profile file where saved logins and cookies live.',
             'warning', 'collection',
-            apis=['Login Data', 'logins.json', 'key4.db', 'CredEnumerate',
-                  'Vault', 'cookies.sqlite']),
+            apis=['login data', 'logins.json', 'key4.db', 'cookies.sqlite', 'web data',
+                  'CredEnumerate']),
 
     # ---- discovery ---------------------------------------------------------------
     ApiRule('environment_probe', 'Environment Discovery',
-            'Reads environment and path information to learn about the host.',
+            'Reads machine, user and path information about the host.',
             'info', 'discovery',
             apis=['Environment::GetFolderPath', 'Environment::GetEnvironmentVariable',
-                  'Environment::OSVersion', 'Environment::CurrentDirectory']),
+                  'Environment::OSVersion', 'Environment::CurrentDirectory',
+                  'Environment::MachineName', 'Environment::UserName',
+                  'Environment::ProcessorCount', 'SystemInformation::']),
     ApiRule('exceptions', 'Exception Handling',
             'Uses try/catch. Heavy use around every operation can be control flow '
             'deliberately hidden inside exception handlers.',
@@ -285,7 +289,7 @@ COMBOS = [
           'A file is written and then registered to run at startup.',
           'warning', 'behaviour',
           [('File::WriteAllBytes', 'File::Copy', 'File::WriteAllText'),
-           ('Registry', 'CurrentVersion\\\\Run', 'TaskService')]),
+           ('Registry', 'currentversion\\run', 'TaskService')]),
 ]
 
 
