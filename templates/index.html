@@ -1,49 +1,163 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="terminal">
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Assembly Annotator</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <!-- Prism.js CSS for syntax highlighting -->
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+  <meta name="description" content="Paste assembly, read plain English. Line-by-line annotation, pattern detection and control-flow analysis.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙</text></svg>">
 </head>
 <body>
-<header role="banner">
-  <h1>ASM Annotator</h1>
-  <p>Making assembly code readable. Instantly.</p>
-</header>
-  
-  <div id="container" role="main">
-    <div class="panel" id="input" role="region" aria-labelledby="inputLabel">
-      <h3 id="inputLabel">Paste Your Assembly Code</h3>
-      <textarea id="codeInput" placeholder="Enter your assembly code here..." aria-describedby="inputDesc"></textarea>
-      <div id="inputDesc" class="sr-only">Enter assembly code to analyze and annotate.</div>
-      <div class="button-row" role="group" aria-label="Code input actions">
-        <button class="primary" id="analyzeBtn">Analyze</button>
-        <button class="secondary" id="clearBtn">Clear</button>
-        <button class="accent" id="exampleBtn">Load Example</button>
-        <button class="secondary" id="saveBtn">Save</button>
-        <button class="secondary" id="loadBtn">Load</button>
-        <button class="secondary" id="exportTextBtn">Export Text</button>
-        <button class="secondary" id="exportJsonBtn">Export JSON</button>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <h1>ASM Annotator</h1>
+      <span class="tag">v{{ version }}</span>
+      <span class="sub">assembly in, plain English out</span>
+    </div>
+
+    <div class="toolbar">
+      <div class="field">
+        <label for="archSel">Arch</label>
+        <select id="archSel" title="Architecture (auto-detected by default)">
+          <option value="">auto</option>
+          <option value="x86">x86 / x64</option>
+          <option value="arm">ARM</option>
+          <option value="mips">MIPS</option>
+        </select>
       </div>
+      <div class="field">
+        <label for="syntaxSel">Syntax</label>
+        <select id="syntaxSel" title="Operand order">
+          <option value="">auto</option>
+          <option value="intel">Intel</option>
+          <option value="att">AT&amp;T</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="verbSel">Detail</label>
+        <select id="verbSel" title="How much explanation to show">
+          <option value="brief">brief</option>
+          <option value="normal" selected>normal</option>
+          <option value="verbose">verbose</option>
+        </select>
+      </div>
+
+      <div class="menu" id="exampleMenu">
+        <button class="btn" id="exampleBtn" aria-haspopup="true" aria-expanded="false">Examples ▾</button>
+        <div class="menu-list" role="menu">
+          {% for ex in examples %}
+          <button type="button" data-example="{{ ex.id }}" role="menuitem">
+            <span class="mi-name">{{ ex.name }}</span>
+            <span class="mi-blurb">{{ ex.blurb }}</span>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="menu" id="exportMenu">
+        <button class="btn" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export ▾</button>
+        <div class="menu-list" role="menu">
+          <button type="button" data-export="md" role="menuitem"><span class="mi-name">Markdown report</span><span class="mi-blurb">Headings, patterns, annotated listing</span></button>
+          <button type="button" data-export="txt" role="menuitem"><span class="mi-name">Plain text</span><span class="mi-blurb">Aligned columns, good for pasting</span></button>
+          <button type="button" data-export="json" role="menuitem"><span class="mi-name">JSON</span><span class="mi-blurb">Full analysis including the control-flow graph</span></button>
+          <button type="button" data-export="copy" role="menuitem"><span class="mi-name">Copy annotations</span><span class="mi-blurb">Straight to the clipboard</span></button>
+        </div>
+      </div>
+
+      <select id="themeSel" title="Colour theme" aria-label="Colour theme">
+        <option value="terminal">Terminal</option>
+        <option value="midnight">Midnight</option>
+        <option value="amber">Amber</option>
+        <option value="light">Light</option>
+      </select>
+
+      <button class="btn icon" id="helpBtn" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
+      <button class="btn primary" id="analyzeBtn">Analyze</button>
     </div>
-    
-    <div class="panel" id="output" role="region" aria-labelledby="outputLabel">
-      <h3 id="outputLabel">Explanation</h3>
-      <!-- Use pre and code with prism language class -->
-      <pre id="annotations" class="language-asm" tabindex="0"><code></code></pre>
+  </header>
+
+  <div class="stats" id="statsBar" hidden></div>
+
+  <main class="panes" id="panes">
+    <section class="pane left" id="leftPane" aria-label="Assembly input">
+      <div class="pane-head">
+        <h2>Source</h2>
+        <span class="spacer"></span>
+        <span class="hint" id="detectHint"></span>
+        <button class="btn icon" id="clearBtn" title="Clear the editor">Clear</button>
+        <button class="btn icon" id="sampleBtn" title="Load the first example">Sample</button>
+      </div>
+      <div class="editor-wrap">
+        <div class="gutter" id="gutter" aria-hidden="true"></div>
+        <div class="code-area">
+          <pre id="highlight" aria-hidden="true"><code></code></pre>
+          <textarea id="codeInput" spellcheck="false" autocomplete="off" autocapitalize="off"
+            aria-label="Assembly source code"
+            placeholder="; paste assembly here, then press Ctrl+Enter&#10;;&#10;; NASM, GAS/AT&amp;T, objdump output, x86, x86-64, ARM and MIPS all work."></textarea>
+        </div>
+      </div>
+    </section>
+
+    <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" tabindex="0"
+         aria-label="Resize panes"></div>
+
+    <section class="pane right" aria-label="Annotations">
+      <div class="pane-head">
+        <h2>Annotated explanation</h2>
+        <span class="spacer"></span>
+        <button class="btn icon" id="expandBtn" title="Expand or collapse every note">Expand all</button>
+      </div>
+      <div class="filter-bar">
+        <input id="filterInput" type="search" placeholder="Filter lines — try `jmp`, `stack`, `syscall`"
+               aria-label="Filter annotations">
+        <span class="count" id="filterCount"></span>
+      </div>
+      <div class="annotations" id="annotations">
+        <div class="empty">
+          <strong>Nothing analysed yet</strong>
+          Paste a listing on the left and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>,
+          or pick one from <em>Examples</em>.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <section class="patterns-section" id="patternsSection" hidden>
+    <div class="patterns-head" id="patternsHead" role="button" tabindex="0" aria-expanded="true">
+      <h2>Detected patterns</h2>
+      <span class="count" id="patternCount"></span>
+      <span class="chev">▾</span>
     </div>
-  </div>
-  
-  <section id="patterns" role="region" aria-labelledby="patternsLabel">
-    <h3 id="patternsLabel">Detected Patterns</h3>
-    <div id="patternList" tabindex="0"></div>
+    <div class="pattern-grid" id="patternGrid"></div>
   </section>
-  
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="/static/script.js"></script>
-  <footer style="text-align:center; padding: 15px; background-color: #1E1E1E; color: #E0E0E0; font-size: 0.9em;">
-    Made with ❤️ for the Cybersecurity Committee by <b>ZoeCyber</b>
-  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="helpDialog">
+  <div class="dlg-head">
+    <h2>Shortcuts &amp; tips</h2>
+    <button type="button" id="helpClose" aria-label="Close">✕</button>
+  </div>
+  <div class="dlg-body">
+    <table>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Analyze the current listing</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Jump to the filter box</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>/</kbd></td><td>Expand or collapse every note</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Clear the filter and selection</td></tr>
+      <tr><td><kbd>Tab</kbd></td><td>Indent inside the editor</td></tr>
+    </table>
+    <p style="color:var(--text-dim);font-size:.83rem;margin-top:14px">
+      Click any annotation to open its teaching note. Click a jump badge to follow the branch,
+      or a pattern card to highlight the lines that triggered it. Your source, theme and
+      settings are kept in this browser only — nothing is stored on the server.
+    </p>
+  </div>
+</dialog>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

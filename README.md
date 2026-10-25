@@ -1,197 +1,187 @@
 # Assembly Annotator
 
-**Assembly Annotator** is a web-based tool that makes assembly code readable and understandable through line-by-line annotation, pattern detection, and advanced analysis features.  
+Paste assembly, read plain English.
 
-It’s designed for reverse engineers, developers, and learners who want to analyze, document, or better understand assembly code.
+Assembly Annotator explains a listing line by line, names the patterns it finds,
+and resolves the branches between them. It is aimed at reverse engineers, CTF
+players, students and anyone who has stared at a disassembly wondering what it
+actually *does*.
 
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Why Use Assembly Annotator](#why-use-assembly-annotator)
-- [Screenshots](#screenshots)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Code Structure](#code-structure)
-- [Extending the Tool](#extending-the-tool)
-- [Testing](#testing)
-- [Contributing](#contributing)
-- [License](#license)
-- [References](#references)
+![The annotated view](docs/screenshot-terminal.png)
 
 ---
 
-## Features
+## What it does
 
-### Instruction Explanations
-- Clear, human-readable explanations for hundreds of assembly instructions.
-- Includes usage examples and references to official documentation.
+**Every line gets a sentence, not a dictionary entry.** The explanation is built
+from the operands, so `mov ecx, 5` reads *"Set ECX (counter) to 5"* rather than
+"copy data from source to destination". Labels, directives and comments are
+classified as what they are instead of being reported as unknown instructions.
 
-### Multi-Dialect and Multi-Architecture Support
-- Supports Intel and AT&T syntaxes.
-- Works with x86, ARM, and MIPS architectures.
-- Automatic detection of dialect and architecture for accurate annotation.
+**Idioms are named.** `xor eax, eax` is *"Zero out EAX"*. `sub esp, 0x20` is
+*"Reserve 32 bytes of local stack space"*. `shl eax, 3` is *"Multiply EAX by 8"*.
+`test eax, eax` is *"Check whether EAX is zero"*.
 
-### Advanced Pattern Detection
-- Detects function prologues/epilogues, stack setups, password checks, loops, and conditional jumps.
-- Flags reverse engineering idioms, anti-debugging tricks, and obfuscation patterns.
-- Uses regex-based matching for customizable detection.
+**Constants are followed forward.** A light register model propagates immediates
+through the listing, so by the time it reaches `int 0x80` it knows EAX held 4 and
+reports *"Invoke the write() system call"*. Packed immediates are decoded too —
+`push 0x6e69622f` is flagged as the ASCII text `/bin` being assembled on the stack.
 
-### Export and Import
-- Export annotated code as JSON, HTML, or PDF.
-- Import previous analysis files to continue work or share.
+**Patterns come with reasons.** Each detection carries a plain-English
+description, a severity, and the exact lines that triggered it. Click a pattern
+to highlight those lines in both panes.
 
-### Interactive User Interface
-- Syntax highlighting for code input and annotated output.
-- Clickable explanations with cross-references.
-- User customization for verbosity, pattern sets, and themes.
-- Responsive design with smooth UX.
+![Pattern detection](docs/screenshot-patterns.png)
 
-### Integration and Extensibility
-- Plugin architecture and API hooks.
-- Connect with popular disassemblers and debugging tools.
-- Extend functionality with custom scripts or plugins.
-
-### Performance Optimizations
-- Efficient backend processing to handle large assembly files.
-- Optimized rendering for responsiveness even with large outputs.
-
-### Security-Focused Analysis
-- Detects suspicious or potentially malicious code patterns.
-- Aids reverse engineers in identifying malware-like behavior.
+**Branches resolve.** Jump targets are matched to the lines that define them, so
+every branch shows where it goes, backward jumps are marked as loops, and code
+nothing reaches is flagged as unreachable.
 
 ---
 
-## Why Use Assembly Annotator
+## Input it understands
 
-- Quickly understand cryptic assembly instructions.
-- Detect common and advanced patterns automatically.
-- Supports multiple architectures and dialects.
-- Save, share, and document your analysis.
-- Designed for both learners and professionals.
+| Input | Notes |
+| --- | --- |
+| x86 / x86-64 | 210+ mnemonics including the full `jcc` / `setcc` / `cmovcc` families |
+| ARM / AArch64 | prologue pairs, `svc` system calls, conditional branches |
+| MIPS | core integer and branch instructions |
+| Intel syntax | `mov eax, 1` |
+| AT&T syntax | `movl $1, %eax` — operands are flipped so explanations read the same way |
+| objdump / gdb | addresses, opcode bytes and `<function>:` headers are parsed and dimmed |
+| NASM / GAS | sections, `global`, data definitions, `;` `#` and `//` comments |
+
+Architecture and syntax are auto-detected; both can be forced from the toolbar.
 
 ---
 
-## Screenshots
+## Interface
 
-<img src="image.png" alt="Image of Assembly Annotator UI">
+- **Split view** — editable source on the left with line numbers and syntax
+  highlighting, annotations on the right, draggable divider.
+- **Three detail levels** — *brief* for a quick pass, *normal*, or *verbose*,
+  which adds tracked register values and flag effects.
+- **Filter** — type `jmp`, `stack` or `syscall` to narrow the annotations.
+- **Four themes** — terminal, midnight, amber and light.
+- **Export** — Markdown report, aligned plain text, full JSON (including the
+  control-flow graph), or copy to the clipboard.
+- **Keyboard** — <kbd>Ctrl</kbd>+<kbd>Enter</kbd> analyze,
+  <kbd>Ctrl</kbd>+<kbd>K</kbd> filter, <kbd>Ctrl</kbd>+<kbd>/</kbd> expand all.
+- **Eight worked examples** in the Examples menu, from a counted loop to
+  `execve` shellcode to raw objdump output.
+
+![Light theme](docs/screenshot-light.png)
+
+The front end is plain HTML, CSS and JavaScript — no framework, no CDN, no build
+step. Nothing you paste leaves your machine beyond the local Flask process, and
+nothing is stored server-side.
 
 ---
 
-## Installation
-
-### Prerequisites
-- Python 3.7 or higher
-- pip package manager
-
-### Setup Steps
+## Running it
 
 ```bash
-git clone https://github.com/zoecyber001/assembly-annotator.git
+git clone <your-repo-url>
 cd assembly-annotator
+./run.sh
 ```
 
-(Optional but recommended)
+Then open <http://127.0.0.1:5000>. `run.sh` creates a virtualenv on first run.
+
+Manually, if you prefer:
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python app.py          # PORT=8080 to change the port
 ```
 
-Install dependencies:
+Requires Python 3.9+ and Flask.
+
+---
+
+## Tests
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
-Run the application:
+90 tests cover parsing, explanation, pattern detection, control flow and the
+HTTP API, including a check that every bundled example is fully recognised.
+
+---
+
+## HTTP API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/annotate` | Analyze a listing. Body: `{code, arch?, syntax?, verbosity?}` |
+| `POST` | `/api/export/{md,txt,json}` | Same analysis as a downloadable report |
+| `GET` | `/api/examples` · `/api/examples/<id>` | Bundled examples |
+| `GET` | `/api/instruction/<mnemonic>` | Instruction reference entry |
+| `GET` | `/api/register/<name>` | Register role, width and parent |
+| `GET` | `/api/health` | Status and database size |
 
 ```bash
-python app.py
-```
-
-Open your browser and navigate to:
-
-```
-http://127.0.0.1:5000/
+curl -s localhost:5000/api/annotate \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"xor eax, eax\nmov al, 11\nint 0x80"}' | jq '.stats.syscalls'
+# ["execve"]
 ```
 
 ---
 
-## Usage
+## Code layout
 
-1. Paste or type your assembly code in the input area.
+```
+annotator/
+  parser.py      line classification: labels, directives, comments, objdump, AT&T
+  isa.py         instruction database, categories, condition codes
+  registers.py   register roles, widths and 64-bit parents
+  syscalls.py    Linux x86 / x86-64 / AArch64 syscall tables
+  explain.py     operand-aware sentences, idiom recognition, register tracking
+  patterns.py    pattern engine with severities and line evidence
+  cfg.py         branch resolution, loop headers, unreachable code
+  analyzer.py    orchestration and summary statistics
+  examples.py    bundled sample listings
+app.py           Flask routes and report rendering
+static/          one stylesheet, one script
+templates/       one page
+tests/           90 tests
+```
 
-2. Select the assembly dialect and architecture if needed.
+### Adding an instruction
 
-3. Click Analyze to generate line-by-line annotations and detect patterns.
+```python
+# annotator/isa.py
+'adcx': _i('Add with carry (unsigned)', 'arith',
+           'Add the source plus the carry flag, unsigned',
+           'Add {src} plus the carry flag to {dst}', 'CF',
+           'Used in wide-integer arithmetic alongside ADOX.'),
+```
 
-4. Review explanations and detected patterns in the output panel.
+`{dst}`, `{src}` and `{op0}`…`{op3}` are filled from the parsed operands.
 
-5. Export results as JSON, HTML, or PDF.
+### Adding a pattern
 
-6. Import previously saved annotated files to continue analysis.
+```python
+# annotator/patterns.py
+Pattern('my_check', 'Human-readable Name',
+        'What the reader should take away from this.',
+        'notable', 'control', any_of=['cmp', 'test']),
+```
 
----
-
-## Code Structure
-
-- `app.py` – Flask backend handling annotation, pattern detection, and export.
-
-- `templates/` – HTML templates for the frontend UI.
-
-- `static/`
-  - `style.css` – UI styling.
-  - `script.js` – Frontend logic and API calls.
-
-- `requirements.txt` – Python dependencies.
-
----
-
-## Extending the Tool
-
-- Add new instruction explanations by editing the `EXPLANATIONS` dictionary in `app.py`.
-
-- Define or update patterns in the `PATTERNS` list with keywords or regex.
-
-- Customize the UI by editing HTML, CSS, and JavaScript.
-
-- Extend the backend API for integration with other tools.
-
----
-
-## Testing
-
-- Backend API endpoints: test with curl, Postman, or other tools.
-
-- Frontend UI: test manually by interacting with the interface.
-
-- Automated tests: recommended using pytest (backend) and frameworks like Jest (frontend).
+Patterns match on an ordered `sequence`, `all_of`, `any_of`, a `regex`, or a
+`custom` callable that receives the match context and returns line numbers.
 
 ---
 
-## Contributing
+## Credit
 
-Contributions are welcome!
+Forked from [zoecyber001/assembly-annotator](https://github.com/zoecyber001/assembly-annotator),
+originally made for the Cybersecurity Committee by ZoeCyber.
 
-- Fork the repository.
+## Licence
 
-- Create a feature branch.
-
-- Submit a pull request with a clear description of your changes.
-
----
-
-## License
-
-This project is licensed under the MIT License. See the LICENSE file for details.
-
----
-
-## References
-
-- [Intel 64 and IA-32 Architectures Software Developer’s Manual](https://software.intel.com/content/www/us/en/develop/articles/intel-sdm.html)
-- [Felix Cloutier’s x86 Instruction Reference](https://www.felixcloutier.com/x86/)
-- [ARM Architecture Reference Manual](https://developer.arm.com/documentation/ddi0100/latest)
-- [MIPS Architecture Reference](https://www.mips.com/develop/tools/architecture/)
+MIT — see [LICENSE](LICENSE).

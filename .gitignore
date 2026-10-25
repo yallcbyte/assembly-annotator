@@ -118,3 +118,8 @@ ENV/
 env/
 env.bak/
 venv.bak/
+
+# local tooling
+.venv/
+venv/
+.pytest_cache/
