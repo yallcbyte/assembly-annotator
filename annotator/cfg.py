@@ -17,8 +17,20 @@ def _is_branch(line) -> bool:
     return m in BRANCH_MNEMONICS or m.startswith(('j', 'b.')) and m not in ('jmp',) or m in BRANCH_MNEMONICS
 
 
-def build(lines):
-    """Return labels, branch edges, loop headers and unreachable lines."""
+def build(lines, branch_mnemonics=None, terminators=None):
+    """Return labels, branch edges, loop headers and unreachable lines.
+
+    `branch_mnemonics` and `terminators` let a non-native instruction set (CIL)
+    reuse this analysis: without them the x86/ARM/MIPS heuristics apply.
+    """
+    branches = set(branch_mnemonics) if branch_mnemonics else None
+    stops = set(terminators) if terminators else TERMINATORS
+
+    def is_branch(mnemonic):
+        if branches is not None:
+            return mnemonic in branches
+        return (mnemonic in BRANCH_MNEMONICS or mnemonic.startswith('j')
+                or mnemonic.startswith('b.'))
     labels = {}
     for line in lines:
         if line.label:
@@ -30,7 +42,7 @@ def build(lines):
 
     for line in instructions:
         m = line.mnemonic or ''
-        if not (m in BRANCH_MNEMONICS or m.startswith('j') or m.startswith('b.')):
+        if not is_branch(m):
             continue
         if not line.operands:
             continue
@@ -39,6 +51,15 @@ def build(lines):
             edges.append({'from': line.index, 'to': None, 'target': target_op.text,
                           'kind': 'indirect', 'backward': False,
                           'conditional': not m.startswith(('jmp', 'call', 'b', 'j'))})
+            continue
+        if branches is not None and len(line.operands) > 1:
+            # `switch (IL_0010, IL_0020)` has one edge per target.
+            for op in line.operands:
+                to = labels.get(op.text.strip())
+                if to is not None:
+                    edges.append({'from': line.index, 'to': to, 'target': op.text.strip(),
+                                  'kind': 'jump', 'backward': to < line.index,
+                                  'conditional': True})
             continue
         name = target_op.text.strip()
         to = labels.get(name) or labels.get(name.lstrip('.'))
@@ -51,7 +72,8 @@ def build(lines):
             'target': name,
             'kind': 'call' if m in ('call', 'bl', 'jal') else 'jump',
             'backward': to < line.index,
-            'conditional': m not in ('jmp', 'call', 'b', 'bl', 'j', 'jal'),
+            'conditional': m not in ('jmp', 'call', 'b', 'bl', 'j', 'jal',
+                                     'br', 'br.s', 'leave', 'leave.s'),
         })
 
     loop_headers = sorted({e['to'] for e in edges if e.get('backward') and e['kind'] == 'jump'})
@@ -66,7 +88,7 @@ def build(lines):
             continue
         if not prev_terminated or line.index in targets or line.label:
             reachable.add(line.index)
-            prev_terminated = (line.mnemonic in TERMINATORS)
+            prev_terminated = (line.mnemonic in stops)
         elif line.index in targets:
             reachable.add(line.index)
             prev_terminated = False
@@ -110,7 +132,7 @@ def _label_above(lines, start):
     return None
 
 
-def basic_blocks(lines, graph):
+def basic_blocks(lines, graph, branch_mnemonics=None, terminators=None):
     """Group instructions into basic blocks with successor edges.
 
     A block starts at the entry, at any branch target, at a label, or right
@@ -140,8 +162,11 @@ def basic_blocks(lines, graph):
         if l.label:
             starts.add(l.index)
         m = l.mnemonic or ''
-        is_branch = (m in BRANCH_MNEMONICS or m.startswith('j') or m.startswith('b.')
-                     or m in TERMINATORS)
+        if branch_mnemonics is not None:
+            is_branch = m in branch_mnemonics or m in (terminators or TERMINATORS)
+        else:
+            is_branch = (m in BRANCH_MNEMONICS or m.startswith('j')
+                         or m.startswith('b.') or m in TERMINATORS)
         if is_branch and i + 1 < len(instructions):
             starts.add(instructions[i + 1].index)
 
@@ -199,7 +224,8 @@ def basic_blocks(lines, graph):
         elif jump:
             edges.append({'from': b['id'], 'to': None, 'kind': 'indirect', 'backward': False})
 
-        falls_through = m not in TERMINATORS or (jump and jump['conditional'])
+        stops = set(terminators) if terminators else TERMINATORS
+        falls_through = m not in stops or (jump and jump['conditional'])
         if falls_through and n + 1 < len(blocks):
             edges.append({'from': b['id'], 'to': blocks[n + 1]['id'],
                           'kind': 'fallthrough', 'backward': False})
