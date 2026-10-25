@@ -1,2 +1,4 @@
 -r requirements.txt
 pytest>=8.0
+# pythonnet ships a real .NET assembly used as a test fixture; it is never imported
+pythonnet>=3.0

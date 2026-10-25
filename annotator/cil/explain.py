@@ -78,7 +78,7 @@ class CilExplainer:
 
     def local_name(self, slot: int) -> str:
         info = self.locals.get(slot)
-        if info and info.get('name'):
+        if info and info.get('name') and info['name'] != f'V_{slot}':
             return f"{info['name']} (V_{slot})"
         return f'V_{slot}'
 

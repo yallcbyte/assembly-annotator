@@ -362,6 +362,12 @@ class Signature(NamedTuple):
         owner = self.type_name.rsplit('.', 1)[-1] if self.type_name else ''
         # Show `Environment.UserName`, not the compiler's `get_UserName`.
         name = self.accessor[1] if self.accessor else self.method
+        # `<LookupTypes>b__27_1` is the C# compiler's name for a lambda.
+        lam = re.match(r'^<([^>]+)>b__', name)
+        if lam:
+            name = f'lambda in {lam.group(1)}'
+        # Closure classes (`<>c`, `<>c__DisplayClass27_0`) add nothing a reader needs.
+        owner = re.sub(r'/<>c(?:__DisplayClass[\w]*)?$', '', owner)
         return f'{owner}.{name}' if owner else name
 
     @property
@@ -375,12 +381,18 @@ class Signature(NamedTuple):
 
 
 # `instance string [mscorlib]System.Net.WebClient::DownloadString(string)`
+# The owner runs up to the first `::` and may contain generic arguments with
+# commas (`Dictionary`2<string,int32>`); a return type may be two words
+# (`native int`).
 _SIG_RE = re.compile(
     r'^\s*(?P<mods>(?:instance\s+|explicit\s+|vararg\s+|class\s+|valuetype\s+)*)'
-    r'(?P<ret>[^\s]+(?:<[^>]*>)?)\s+'
+    r'(?P<ret>native\s+u?int\S*|\S+)\s+'
+    r'(?:class\s+|valuetype\s+)?'          # ildasm repeats this before a generic owner
     r'(?:\[(?P<asm>[^\]]+)\])?'
-    r'(?P<owner>[\w.`<>/]+)::(?P<method>[\w.`<>$]+)'
-    r'(?:<(?P<targs>[^>]*)>)?'
+    # Compiler-generated names start with `<...>` (`<Main>b__0_1`, `<>m__Finally1`).
+    r'(?P<owner>[^\s(]+?)::(?P<method>(?:<[^>(]*>)?[^\s(<]*)'
+    # Generic method arguments, allowing two levels of nesting.
+    r'(?:<(?P<targs>(?:[^<>]|<(?:[^<>]|<[^<>]*>)*>)*)>)?'
     r'\s*\((?P<params>.*)\)\s*$',
     re.DOTALL)
 

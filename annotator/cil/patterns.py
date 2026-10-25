@@ -315,9 +315,21 @@ class CilContext:
             if a['kind'] == 'directive':
                 self.declarations.append((a['index'], a['raw']))
 
+    @classmethod
+    def from_parts(cls, calls, opcodes, declarations):
+        """Build a context directly, for scanning decoded bytecode."""
+        ctx = cls([], [])
+        ctx.calls = list(calls)
+        ctx.opcodes = list(opcodes)
+        ctx.declarations = list(declarations)
+        return ctx
+
 
 def detect(annotations, lines) -> List[dict]:
-    ctx = CilContext(annotations, lines)
+    return run_rules(CilContext(annotations, lines))
+
+
+def run_rules(ctx) -> List[dict]:
     results = []
     for rule in list(RULES) + list(COMBOS):
         try:
