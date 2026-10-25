@@ -32,6 +32,13 @@ _ST_LOC_N = re.compile(r'^stloc\.(\d)$')
 _LDC_I4_N = re.compile(r'^ldc\.i4\.(m1|M1|\d)$')
 
 
+def _short_type(type_text: str) -> str:
+    """`class [System]System.Net.WebClient` -> `WebClient`."""
+    t = re.sub(r'^(?:class|valuetype)\s+', '', type_text.strip())
+    t = re.sub(r'\[[^\]]+\]', '', t)
+    return t.rsplit('.', 1)[-1]
+
+
 def _unquote(text: str) -> str:
     t = text.strip()
     if len(t) >= 2 and t[0] == '"' and t[-1] == '"':
@@ -348,7 +355,13 @@ class CilExplainer:
         if mnemonic == '.maxstack':
             return 'Declares how deep the evaluation stack gets in this method'
         if mnemonic == '.locals':
-            return 'Declares the method’s local variable slots'
+            if not self.locals:
+                return 'Declares the method\u2019s local variable slots'
+            names = ', '.join(
+                f"{l['name'] or 'V_' + str(l['slot'])} ({_short_type(l['type'])})"
+                for l in sorted(self.locals.values(), key=lambda l: l['slot']))
+            n = len(self.locals)
+            return f'Declares {n} local slot{"s" if n != 1 else ""}: {names}'
         if mnemonic == '.entrypoint':
             return 'Marks this method as the assembly’s entry point'
         if mnemonic == '.try':

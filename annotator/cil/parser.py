@@ -139,8 +139,9 @@ def parse(text: str):
         if pending_locals is not None:
             pending_locals.append(body)
             joined = ' '.join(pending_locals)
-            line.kind = 'directive'
-            line.mnemonic = '.locals'
+            # Continuation of a wrapped list: the opening line's annotation
+            # already describes every slot, so this one stays quiet.
+            line.kind = 'blank'
             if joined.count('(') <= joined.count(')'):
                 m = LOCALS_RE.match(joined)
                 if m:

@@ -159,7 +159,9 @@ def basic_blocks(lines, graph, branch_mnemonics=None, terminators=None):
         if resolved is not None:
             starts.add(resolved)
     for i, l in enumerate(instructions):
-        if l.label:
+        # Native labels mark places code can be reached from. CIL labels every
+        # instruction with its IL offset, so there only branch targets count.
+        if l.label and branch_mnemonics is None:
             starts.add(l.index)
         m = l.mnemonic or ''
         if branch_mnemonics is not None:

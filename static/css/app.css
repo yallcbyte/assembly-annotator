@@ -596,3 +596,34 @@ dialog kbd {
   font-size: 0.8rem; cursor: pointer; transition: border-color .15s, background .15s;
 }
 .drop-zone:hover, .drop-zone.over { border-color: var(--accent); background: var(--accent-glow); color: var(--text); }
+
+/* ===== CIL categories =============================================== */
+.ann[data-cat="load"]      { border-left-color: var(--cat-data); }
+.ann[data-cat="store"]     { border-left-color: var(--cat-string); }
+.ann[data-cat="call"]      { border-left-color: var(--cat-stack); }
+.ann[data-cat="object"]    { border-left-color: var(--cat-simd); }
+.ann[data-cat="convert"]   { border-left-color: var(--cat-string); }
+.ann[data-cat="exception"] { border-left-color: var(--cat-system); }
+.ann[data-cat="prefix"]    { border-left-color: var(--cat-other); }
+.ann[data-cat="load"]      .badge.cat { color: var(--cat-data); }
+.ann[data-cat="store"]     .badge.cat { color: var(--cat-string); }
+.ann[data-cat="call"]      .badge.cat { color: var(--cat-stack); }
+.ann[data-cat="object"]    .badge.cat { color: var(--cat-simd); }
+.ann[data-cat="convert"]   .badge.cat { color: var(--cat-string); }
+.ann[data-cat="exception"] .badge.cat { color: var(--cat-system); }
+.cfg-ins.cat-load   { fill: var(--cat-data); }
+.cfg-ins.cat-store  { fill: var(--cat-string); }
+.cfg-ins.cat-call   { fill: var(--cat-stack); }
+.cfg-ins.cat-object { fill: var(--cat-simd); }
+
+.badge.depth { color: var(--text-faint); }
+.badge.callee { color: var(--cat-stack); text-transform: none; letter-spacing: 0; }
+
+.pattern .evidence {
+  display: flex; flex-wrap: wrap; gap: 4px; margin: -2px 0 7px;
+}
+.pattern .evidence code {
+  font-size: 0.68rem; color: var(--text-dim);
+  background: var(--panel-3); border: 1px solid var(--border-soft);
+  border-radius: 4px; padding: 0 5px;
+}

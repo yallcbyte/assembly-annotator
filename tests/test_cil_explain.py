@@ -125,3 +125,17 @@ def test_instance_property_read_and_write():
                'callvirt instance string [System]System.Net.WebClient::get_BaseAddress()')
     assert t[2] == 'Set BaseAddress on a WebClient to "agent"'
     assert t[4] == 'Read BaseAddress from a WebClient'
+
+
+def test_cil_blocks_split_only_at_branches_and_targets():
+    # Every CIL line carries an IL_ label; those must not each become a block.
+    from annotator import analyse
+    from annotator.examples import BY_ID
+    r = analyse(BY_ID['cil_loop']['code'])
+    blocks = r['cfg']['blocks']
+    assert [b['label'] for b in blocks] == ['IL_0000', 'IL_0006', 'IL_0010', 'IL_0016']
+    loop = [b for b in blocks if b['loop_header']]
+    assert [b['label'] for b in loop] == ['IL_0006']
+    kinds = sorted((e['from'], e['to'], e['kind']) for e in r['cfg']['block_edges'])
+    assert kinds == [(0, 2, 'jump'), (1, 2, 'fallthrough'),
+                     (2, 1, 'taken'), (2, 3, 'fallthrough')]

@@ -40,7 +40,7 @@ def create_app(config=None):
         arch = data.get('arch') or None
         syntax = data.get('syntax') or None
         verbosity = data.get('verbosity', 'normal')
-        if arch not in (None, 'x86', 'arm', 'mips'):
+        if arch not in (None, 'x86', 'arm', 'mips', 'cil'):
             return jsonify({'error': f'Unsupported architecture: {arch}'}), 400
         if syntax not in (None, 'intel', 'att'):
             return jsonify({'error': f'Unsupported syntax: {syntax}'}), 400

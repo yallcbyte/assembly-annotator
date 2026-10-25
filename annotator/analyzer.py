@@ -3,8 +3,14 @@
 from collections import Counter
 
 from . import cfg as cfg_mod, frames as frames_mod, isa, patterns as patterns_mod
+from .cil.analyzer import analyse as cil_analyse
+from .cil.parser import looks_like_cil
 from .explain import Explainer
 from .parser import parse
+
+# looks_like_cil scores 0 on every native listing in the test suite; a single
+# `IL_xxxx:` line plus one CIL-only opcode clears this comfortably.
+CIL_THRESHOLD = 6
 
 MAX_INPUT_CHARS = 200_000
 MAX_LINES = 20_000
@@ -20,6 +26,11 @@ def analyse(code: str, arch=None, syntax=None, verbosity='normal'):
             f'Input is {len(code)} characters; the limit is {MAX_INPUT_CHARS}.')
     if code.count('\n') > MAX_LINES:
         raise InputTooLarge(f'Input has more than {MAX_LINES} lines.')
+
+    # .NET IL is a different machine model, so it gets its own pipeline --
+    # but returns the same shape, so every view and export works unchanged.
+    if arch == 'cil' or (arch is None and looks_like_cil(code) >= CIL_THRESHOLD):
+        return cil_analyse(code, verbosity=verbosity)
 
     lines, meta = parse(code, arch=arch, syntax=syntax)
     graph = cfg_mod.build(lines)

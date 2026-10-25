@@ -42,6 +42,9 @@ def test_locals_spread_over_several_lines():
   IL_0000:  ret"""
     _, meta = parse(src)
     assert [l['name'] for l in meta['locals']] == ['a', 'sb']
+    lines, _ = parse(src)
+    # Only the opening line is a directive; the wrapped lines fold into it.
+    assert [l.kind for l in lines[:4]] == ['directive', 'blank', 'blank', 'blank']
     assert meta['locals'][1]['type'] == 'class [mscorlib]System.Text.StringBuilder'
 
 

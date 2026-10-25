@@ -168,6 +168,8 @@
       ['recognised', s.coverage + '%'],
     ];
     if (s.syscalls.length) items.push(['syscalls', s.syscalls.join(', ')]);
+    if (s.calls != null) items.push(['calls', s.calls]);
+    if (s.methods && s.methods.length) items.push(['methods', s.methods.join(', ')]);
     let html = items.map(([k, v]) =>
       `<div class="stat"><span class="v">${esc(String(v))}</span><span class="k">${k}</span></div>`).join('');
     if (s.warnings.length) {
@@ -198,6 +200,12 @@
     if (a.loop_header) badges.push('<span class="badge loop">loop head</span>');
     if (a.unreachable) badges.push('<span class="badge dead">unreachable</span>');
     if (a.syscall) badges.push(`<span class="badge sys">${esc(a.syscall)}()</span>`);
+    if (a.call && a.call.assembly) {
+      badges.push(`<span class="badge callee" title="${esc(a.call.target)}">[${esc(a.call.assembly)}]</span>`);
+    }
+    if (a.kind === 'instruction' && a.stack_after != null) {
+      badges.push(`<span class="badge depth" title="evaluation stack depth after this line">stack ${a.stack_after}</span>`);
+    }
     if (a.jump_target) {
       badges.push(`<span class="badge jump" data-goto="${a.jump_target}">`
         + `${a.jump_backward ? '↑' : '↓'} line ${a.jump_target}</span>`);
@@ -236,6 +244,9 @@
                data-lines="${p.lines.join(',')}" tabindex="0" role="button">
         <h3>${esc(p.name)} <span class="sev">${esc(p.severity)}</span></h3>
         <p>${esc(p.description)}</p>
+        ${p.evidence && p.evidence.length ? `<div class="evidence">${p.evidence.slice(0, 5)
+          .map((e) => `<code>${esc(e.includes('::') ? e.split('::').slice(-2).join('::')
+            .replace(/^.*\./, '') : e)}</code>`).join('')}</div>` : ''}
         <div class="lines">Line${p.lines.length > 1 ? 's' : ''}
           <b>${p.lines.slice(0, 10).join(', ')}${p.lines.length > 10 ? '…' : ''}</b></div>
       </article>`).join('');

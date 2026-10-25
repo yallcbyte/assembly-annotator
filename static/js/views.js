@@ -93,9 +93,19 @@
     const tx = b.x + b.w / 2;
     const ty = backward ? b.y + b.h : b.y;
     if (backward) {
-      // Route back edges around the left margin so they stay readable.
-      const side = Math.min(a.x, b.x) - 24;
-      return `M ${sx} ${sy} C ${side} ${sy}, ${side} ${ty}, ${tx} ${ty}`;
+      if (Math.abs(sx - tx) > 40) {
+        // Target sits off to one side: a direct curve upward is clearest.
+        // Shift both ends off-centre so it does not sit on top of the
+        // fall-through edge that usually joins the same two blocks.
+        const off = tx > sx ? 46 : -46;
+        const x1 = sx + off, x2 = tx + off / 2;
+        return `M ${x1} ${sy} C ${x1} ${sy - 50}, ${x2} ${ty + 50}, ${x2} ${ty}`;
+      }
+      // Same column: go round the right-hand edge so the edge does not run
+      // back through the blocks between source and target.
+      const side = Math.max(a.x + a.w, b.x + b.w) + 30;
+      return `M ${a.x + a.w} ${a.y + 14} C ${side} ${a.y + 14}, `
+           + `${side} ${b.y + b.h - 14}, ${b.x + b.w} ${b.y + b.h - 14}`;
     }
     const mid = (sy + ty) / 2;
     return `M ${sx} ${sy} C ${sx} ${mid}, ${tx} ${mid}, ${tx} ${ty}`;
@@ -227,9 +237,17 @@
       return;
     }
 
+    const isCil = frame.kind === 'cil';
     const head = document.createElement('div');
     head.className = 'frame-head';
-    head.innerHTML = `
+    if (isCil) {
+      head.innerHTML = `
+        <div><span class="v">${frame.locals.length}</span><span class="k">${
+          frame.locals.length === 1 ? 'local' : 'locals'}</span></div>
+        <div><span class="v">${frame.maxstack == null ? '?' : frame.maxstack}</span><span class="k">declared maxstack</span></div>
+        <div><span class="v">${frame.max_depth_seen}</span><span class="k">deepest stack seen</span></div>`;
+    }
+    if (!isCil) head.innerHTML = `
       <div><span class="v">${frame.word * 8}-bit</span><span class="k">word</span></div>
       <div><span class="v">${frame.reserved}</span><span class="k">${
         frame.reserved === 1 ? 'byte reserved' : 'bytes reserved'}</span></div>
@@ -242,8 +260,10 @@
 
     const note = document.createElement('p');
     note.className = 'frame-note';
-    note.textContent = 'High addresses at the top. Arguments sit above the saved frame '
-      + 'pointer; locals sit below it.';
+    note.textContent = isCil
+      ? 'Local variable slots from .locals init, with the lines that store to (w) and load from (r) each one.'
+      : 'High addresses at the top. Arguments sit above the saved frame '
+        + 'pointer; locals sit below it.';
     container.appendChild(note);
 
     const list = document.createElement('div');
@@ -274,13 +294,15 @@
       const row = document.createElement('div');
       row.className = `frame-slot role-${slot.role}${slot.implied ? ' implied' : ''}`;
       row.innerHTML = `
-        <span class="frame-addr">[${base}${sign}${Math.abs(slot.offset)}]</span>
+        <span class="frame-addr">${slot.addr_label ? esc(slot.addr_label)
+          : `[${base}${sign}${Math.abs(slot.offset)}]`}</span>
         <span class="frame-body">
           <span class="frame-name">${esc(slot.name)}</span>
           <span class="frame-detail">${esc(slot.detail || '')}</span>
         </span>
         <span class="frame-meta">
-          <span class="frame-size">${slot.size}B</span>
+          <span class="frame-size">${slot.type_text ? esc(slot.type_text.replace(/^class\s+/, '')
+            .replace(/\[[^\]]+\]/, '').split('.').pop()) : `${slot.size}B`}</span>
           <span class="frame-role">${esc(ROLE_LABEL[slot.role] || slot.role)}</span>
         </span>
         <span class="frame-refs">${badges}</span>`;

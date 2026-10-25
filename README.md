@@ -53,6 +53,27 @@ disassembly, and the result is annotated like any other listing.
 
 ![Stack frame](docs/screenshot-frame.png)
 
+**.NET, read at the level of calls.** Paste IL from ILSpy, dnSpy or ildasm and
+the annotator switches to a separate CIL engine. CIL is a stack machine, so it
+models the evaluation stack: a literal pushed with `ldstr`, stored to a local
+and loaded back is named again at the call that finally consumes it.
+
+```
+ldstr    "http://198.51.100.7/update.txt"
+callvirt instance string WebClient::DownloadString(string)
+  -> Call WebClient.DownloadString on a WebClient, passing "http://198.51.100.7/update.txt"
+```
+
+Because .NET metadata names every callee, detection works on resolved APIs,
+not instruction shapes. Each finding lists the calls that triggered it, and the
+strongest ones are composites, such as Base64 decode followed by
+`Assembly.Load` followed by `MethodBase.Invoke`, which together form a
+reflective loader. Properties read as properties (`Read Environment.UserName`,
+not `get_UserName`), every line shows its stack depth, and the Stack view lists
+the typed local slots with the lines that read and write each one.
+
+![.NET analysis](docs/screenshot-dotnet.png)
+
 ---
 
 ## Input it understands
@@ -67,6 +88,7 @@ disassembly, and the result is annotated like any other listing.
 | objdump / gdb | addresses, opcode bytes and `<function>:` headers are parsed and dimmed |
 | Raw bytes | hex, `\x` escapes, C arrays, `xxd` and `hexdump -C` dumps |
 | ELF binaries | `.text` is located and disassembled at its real load address |
+| .NET IL | ildasm, ILSpy and dnSpy output, with `.method`, `.locals` and `.maxstack` context |
 | NASM / GAS | sections, `global`, data definitions, `;` `#` and `//` comments |
 
 Architecture and syntax are auto-detected; both can be forced from the toolbar.
@@ -127,7 +149,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-147 tests cover parsing, explanation, pattern detection, control flow and the
+236 tests cover parsing, explanation, pattern detection, control flow and the
 HTTP API, including a check that every bundled example is fully recognised.
 
 ---
@@ -166,12 +188,14 @@ annotator/
   cfg.py         branch resolution, loop headers, unreachable code, basic blocks
   frames.py      stack frame layout: arguments, locals, saved pointer, return address
   disasm.py      hex and ELF parsing, Capstone disassembly
+  cil/           .NET IL: opcode table and signatures, IL parser,
+                 evaluation-stack explainer, API rules, pipeline
   analyzer.py    orchestration and summary statistics
   examples.py    bundled sample listings
 app.py           Flask routes and report rendering
 static/          one stylesheet, one script
 templates/       one page
-tests/           147 tests
+tests/           236 tests
 ```
 
 ### Adding an instruction
