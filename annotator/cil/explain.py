@@ -36,7 +36,28 @@ def _short_type(type_text: str) -> str:
     """`class [System]System.Net.WebClient` -> `WebClient`."""
     t = re.sub(r'^(?:class|valuetype)\s+', '', type_text.strip())
     t = re.sub(r'\[[^\]]+\]', '', t)
-    return t.rsplit('.', 1)[-1]
+    return re.sub(r'`\d+', '', t.rsplit('.', 1)[-1])
+
+
+_TRY_RE = re.compile(r'^\.try (IL_\w+) to (IL_\w+) (catch|filter|finally|fault)'
+                     r'(?: (\S+))? handler (IL_\w+) to (IL_\w+)')
+_DECODED_RE = re.compile(r'^([^\s]+)::([^\s]+)\s+\(token (0x[0-9a-f]+)\)')
+
+
+def _comment_title(comment: str):
+    """Comments the assembly decoder writes are facts, not author notes."""
+    m = _TRY_RE.match(comment)
+    if m:
+        start, end, kind, cls, h1, h2 = m.groups()
+        what = f'{kind} {_short_type(cls)}' if cls else kind
+        return (f'Protected region {start}\u2013{end}, with a {what} handler at {h1}\u2013{h2}',
+                'Code inside the region exits with leave rather than br; a finally '
+                'handler always runs on the way out.')
+    m = _DECODED_RE.match(comment)
+    if m:
+        return (f'Decoded from the assembly: {m.group(1)}::{m.group(2)}',
+                f'Metadata token {m.group(3)}.')
+    return 'Author\u2019s comment', comment
 
 
 def _unquote(text: str) -> str:
@@ -150,7 +171,7 @@ class CilExplainer:
             receiver, args = taken[0], taken[1:]
 
         notes = []
-        owner = sig.type_name.rsplit('.', 1)[-1] if sig.type_name else ''
+        owner = re.sub(r'`\d+', '', sig.type_name.rsplit('.', 1)[-1]) if sig.type_name else ''
 
         if opcode == 'newobj':
             shown = ', '.join(self.describe(a) for a in args) if args else ''
@@ -216,8 +237,7 @@ class CilExplainer:
             return out
         if line.kind == 'comment':
             out['category'] = 'comment'
-            out['title'] = 'Author’s comment'
-            out['detail'] = line.comment or ''
+            out['title'], out['detail'] = _comment_title(line.comment or '')
             return out
         if line.kind == 'directive':
             out['category'] = 'directive'

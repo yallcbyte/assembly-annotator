@@ -89,6 +89,7 @@
         <div class="tabs" role="tablist" aria-label="Input mode">
           <button class="tab" id="modeAsm" role="tab" aria-selected="true" data-mode="asm">Assembly</button>
           <button class="tab" id="modeBytes" role="tab" aria-selected="false" data-mode="bytes">Bytes</button>
+          <button class="tab" id="modeMethods" role="tab" aria-selected="false" data-mode="methods" hidden>Methods</button>
         </div>
         <span class="spacer"></span>
         <span class="hint" id="detectHint"></span>
@@ -131,7 +132,8 @@
 
         <div class="drop-zone" id="dropZone" role="button" tabindex="0">
           Drop a binary here, or click to choose one.
-          <br>ELF files have their <code>.text</code> section extracted automatically.
+          <br>ELF files have their <code>.text</code> section extracted automatically;
+          .NET <code>.dll</code>/<code>.exe</code> files open in a method browser.
         </div>
         <input type="file" id="fileInput" hidden>
 
@@ -140,6 +142,8 @@
           listing. Nothing is uploaded anywhere beyond this local server.
         </p>
       </div>
+
+      <div class="methods-panel" id="methodsPanel"></div>
     </section>
 
     <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" tabindex="0"
@@ -206,6 +210,7 @@
 </dialog>
 
 <script src="{{ url_for('static', filename='js/views.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dotnet.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

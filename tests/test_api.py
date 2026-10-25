@@ -152,3 +152,85 @@ def test_annotate_now_returns_blocks_and_frame(client):
     assert body['cfg']['blocks'] and body['cfg']['block_edges'] == []
     assert body['frame']['has_frame'] is True
     assert body['stats']['blocks'] == 1
+
+
+# ---- .NET assembly browsing ----------------------------------------------
+
+def _dotnet_fixture():
+    import importlib.util
+    import pathlib
+    spec = importlib.util.find_spec('pythonnet')
+    if spec is None or spec.origin is None:
+        return None
+    dll = pathlib.Path(spec.origin).parent / 'runtime' / 'Python.Runtime.dll'
+    return dll if dll.exists() else None
+
+
+DOTNET_DLL = _dotnet_fixture()
+needs_dotnet = pytest.mark.skipif(DOTNET_DLL is None, reason='needs the pythonnet wheel')
+
+
+def _upload(client, data, name='x.dll'):
+    import io
+    return client.post('/api/dotnet/load',
+                       data={'file': (io.BytesIO(data), name)},
+                       content_type='multipart/form-data')
+
+
+def test_dotnet_load_requires_a_file(client):
+    assert client.post('/api/dotnet/load', data={},
+                       content_type='multipart/form-data').status_code == 400
+
+
+def test_dotnet_load_rejects_non_pe(client):
+    r = _upload(client, b'\x7fELF' + b'\x00' * 64, 'a.so')
+    assert r.status_code == 400
+    assert 'MZ' in r.get_json()['error']
+
+
+@needs_dotnet
+def test_dotnet_load_then_open_a_method(client):
+    r = _upload(client, DOTNET_DLL.read_bytes(), 'Python.Runtime.dll')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['name'] == 'Python.Runtime'
+    assert body['filename'] == 'Python.Runtime.dll'
+
+    row = next(m['id'] for m in body['methods'] if m['has_body'] and m['calls'])
+    m = client.get(f'/api/dotnet/{body["sha256"]}/method/{row}')
+    assert m.status_code == 200
+    text = m.get_json()['text']
+    # The returned IL goes straight into the normal annotate route.
+    annotated = client.post('/api/annotate', json={'code': text}).get_json()
+    assert annotated['meta']['arch'] == 'cil'
+
+
+def test_dotnet_method_for_an_unknown_assembly_is_gone(client):
+    r = client.get('/api/dotnet/' + '0' * 64 + '/method/1')
+    assert r.status_code == 410
+
+
+@needs_dotnet
+def test_dotnet_unknown_method_row_is_404(client):
+    body = _upload(client, DOTNET_DLL.read_bytes()).get_json()
+    assert client.get(f'/api/dotnet/{body["sha256"]}/method/9999999').status_code == 404
+
+
+def test_assembly_cache_evicts_least_recently_used(monkeypatch):
+    import app as app_module
+
+    class Fake:
+        def __init__(self, blob):
+            self.blob = blob
+
+    monkeypatch.setattr(app_module.dotnet, 'Assembly', Fake)
+    cache = app_module._AssemblyCache(capacity=2)
+    import hashlib
+    keys = [hashlib.sha256(b).hexdigest() for b in (b'a', b'b', b'c')]
+    cache.add(b'a')
+    cache.add(b'b')
+    cache.get(keys[0])          # touch 'a' so 'b' is the oldest
+    cache.add(b'c')
+    assert cache.get(keys[0]) is not None
+    assert cache.get(keys[1]) is None
+    assert cache.get(keys[2]) is not None

@@ -4,11 +4,14 @@ import io
 import json
 import logging
 import os
+import threading
+from collections import OrderedDict
 
 from flask import Flask, Response, jsonify, render_template, request
 
 from annotator import InputTooLarge, MAX_INPUT_CHARS, analyse, __version__
 from annotator import disasm, isa, registers
+from annotator.cil import assembly as dotnet
 from annotator.examples import BY_ID, EXAMPLES
 
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +19,11 @@ logging.basicConfig(level=logging.INFO)
 
 def create_app(config=None):
     app = Flask(__name__)
-    app.config.update(JSON_SORT_KEYS=False, MAX_CONTENT_LENGTH=2 * 1024 * 1024)
+    # .NET assemblies are routinely several megabytes; per-route limits below
+    # are what actually bound the work.
+    app.config.update(JSON_SORT_KEYS=False,
+                      MAX_CONTENT_LENGTH=dotnet.MAX_ASSEMBLY_BYTES + 1024 * 1024)
+    assemblies = _AssemblyCache(capacity=6)
     if config:
         app.config.update(config)
 
@@ -107,6 +114,41 @@ def create_app(config=None):
         out['note'] = container.note
         return jsonify(out)
 
+    @app.post('/api/dotnet/load')
+    def dotnet_load():
+        """Parse a .NET assembly, scan every method, and cache it for browsing."""
+        upload = request.files.get('file')
+        if upload is None:
+            return jsonify({'error': 'No file uploaded.'}), 400
+        blob = upload.read(dotnet.MAX_ASSEMBLY_BYTES + 1)
+        try:
+            asm = assemblies.add(blob)
+            overview = asm.overview()
+        except dotnet.AssemblyError as exc:
+            status = 413 if 'limit' in str(exc) else 400
+            return jsonify({'error': str(exc)}), status
+        except Exception:
+            app.logger.exception('assembly load failed')
+            return jsonify({'error': 'Could not read that assembly.'}), 500
+        return jsonify({**overview, 'filename': upload.filename or ''})
+
+    @app.get('/api/dotnet/<sha>/method/<int:row>')
+    def dotnet_method(sha, row):
+        asm = assemblies.get(sha)
+        if asm is None:
+            # Evicted or never loaded: the client re-sends the file and retries.
+            return jsonify({'error': 'Assembly is no longer cached; upload it again.'}), 410
+        try:
+            text = asm.disassemble(row)
+            info = asm.method_info(row)
+        except dotnet.AssemblyError as exc:
+            return jsonify({'error': str(exc)}), 404 if 'No such' in str(exc) else 422
+        except Exception:
+            app.logger.exception('method disassembly failed')
+            return jsonify({'error': 'Could not disassemble that method.'}), 500
+        info.pop('flags', None)
+        return jsonify({'text': text, 'method': info})
+
     @app.get('/api/examples')
     def list_examples():
         return jsonify(EXAMPLES)
@@ -167,7 +209,8 @@ def create_app(config=None):
     def health():
         return jsonify({'status': 'ok', 'version': __version__,
                         'instructions': len(isa.X86) + len(isa.ARM) + len(isa.MIPS),
-                        'disassembler': disasm.AVAILABLE})
+                        'disassembler': disasm.AVAILABLE,
+                        'dotnet': dotnet.AVAILABLE})
 
     @app.errorhandler(404)
     def not_found(_):
@@ -178,6 +221,37 @@ def create_app(config=None):
         return jsonify({'error': 'Request body too large.'}), 413
 
     return app
+
+
+class _AssemblyCache:
+    """Recently opened assemblies, keyed by SHA-256, least recently used out."""
+
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self._items = OrderedDict()
+        self._lock = threading.Lock()
+
+    def add(self, blob):
+        import hashlib
+        key = hashlib.sha256(blob).hexdigest()
+        with self._lock:
+            if key in self._items:
+                self._items.move_to_end(key)
+                return self._items[key]
+        asm = dotnet.Assembly(blob)          # parse outside the lock
+        with self._lock:
+            self._items[key] = asm
+            self._items.move_to_end(key)
+            while len(self._items) > self.capacity:
+                self._items.popitem(last=False)
+        return asm
+
+    def get(self, key):
+        with self._lock:
+            asm = self._items.get(key)
+            if asm is not None:
+                self._items.move_to_end(key)
+            return asm
 
 
 def _markdown_report(result) -> str:

@@ -74,6 +74,17 @@ the typed local slots with the lines that read and write each one.
 
 ![.NET analysis](docs/screenshot-dotnet.png)
 
+**Open a .NET assembly directly.** Drop a `.dll` or `.exe` on the Bytes tab and
+it opens in a method browser: assembly identity and references, every rule that
+fired anywhere in the file with how many methods it fired in, and the P/Invoke
+table of native functions it can reach. Click a finding to list only the methods
+that triggered it; click a method to decode its IL, with every metadata token
+resolved to a name, and annotate it like any other listing. The file is parsed
+in memory and never executed. A 450 KB, 3,900-method assembly loads and scans in
+about two seconds.
+
+![.NET method](docs/screenshot-dotnet-method.png)
+
 ---
 
 ## Input it understands
@@ -89,6 +100,7 @@ the typed local slots with the lines that read and write each one.
 | Raw bytes | hex, `\x` escapes, C arrays, `xxd` and `hexdump -C` dumps |
 | ELF binaries | `.text` is located and disassembled at its real load address |
 | .NET IL | ildasm, ILSpy and dnSpy output, with `.method`, `.locals` and `.maxstack` context |
+| .NET assemblies | `.dll` / `.exe` opened directly: method browser, IL decoding, whole-file scan |
 | NASM / GAS | sections, `global`, data definitions, `;` `#` and `//` comments |
 
 Architecture and syntax are auto-detected; both can be forced from the toolbar.
@@ -137,8 +149,9 @@ python3 -m venv .venv
 .venv/bin/python app.py          # PORT=8080 to change the port
 ```
 
-Requires Python 3.9+ and Flask. Install `capstone` as well to enable the
-*Bytes* input mode; without it the rest of the app works unchanged.
+Requires Python 3.9+ and Flask. `capstone` enables the *Bytes* input mode and
+`dnfile` enables opening .NET assemblies; without either, the rest of the app
+works unchanged.
 
 ---
 
@@ -149,7 +162,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-236 tests cover parsing, explanation, pattern detection, control flow and the
+298 tests cover parsing, explanation, pattern detection, control flow and the
 HTTP API, including a check that every bundled example is fully recognised.
 
 ---
@@ -160,6 +173,8 @@ HTTP API, including a check that every bundled example is fully recognised.
 | --- | --- | --- |
 | `POST` | `/api/annotate` | Analyze a listing. Body: `{code, arch?, syntax?, verbosity?}` |
 | `POST` | `/api/disassemble` | Bytes to assembly. JSON `{hex, arch?, bits?, base?}`, or a multipart `file` |
+| `POST` | `/api/dotnet/load` | Open a .NET assembly (multipart `file`): overview, findings, methods |
+| `GET` | `/api/dotnet/<sha256>/method/<id>` | One method as IL, ready for `/api/annotate` |
 | `POST` | `/api/export/{md,txt,json}` | Same analysis as a downloadable report |
 | `GET` | `/api/examples` · `/api/examples/<id>` | Bundled examples |
 | `GET` | `/api/instruction/<mnemonic>` | Instruction reference entry |
@@ -188,14 +203,15 @@ annotator/
   cfg.py         branch resolution, loop headers, unreachable code, basic blocks
   frames.py      stack frame layout: arguments, locals, saved pointer, return address
   disasm.py      hex and ELF parsing, Capstone disassembly
-  cil/           .NET IL: opcode table and signatures, IL parser,
-                 evaluation-stack explainer, API rules, pipeline
+  cil/           .NET: opcode table and signatures, IL parser,
+                 evaluation-stack explainer, API rules, pipeline,
+                 IL byte decoder, signature blobs, assembly loader
   analyzer.py    orchestration and summary statistics
   examples.py    bundled sample listings
 app.py           Flask routes and report rendering
 static/          one stylesheet, one script
 templates/       one page
-tests/           236 tests
+tests/           298 tests
 ```
 
 ### Adding an instruction

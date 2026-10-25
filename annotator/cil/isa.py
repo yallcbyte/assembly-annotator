@@ -368,6 +368,8 @@ class Signature(NamedTuple):
             name = f'lambda in {lam.group(1)}'
         # Closure classes (`<>c`, `<>c__DisplayClass27_0`) add nothing a reader needs.
         owner = re.sub(r'/<>c(?:__DisplayClass[\w]*)?$', '', owner)
+        # `Func`2<string,int32>` -> `Func<string,int32>`: the arity is noise.
+        owner = re.sub(r'`\d+', '', owner)
         return f'{owner}.{name}' if owner else name
 
     @property

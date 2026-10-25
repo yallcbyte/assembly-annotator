@@ -402,6 +402,8 @@
       t.setAttribute('aria-selected', String(t.dataset.mode === mode)));
     el.editorWrap.classList.toggle('hidden', mode !== 'asm');
     el.bytesPanel.classList.toggle('active', mode === 'bytes');
+    const methods = document.getElementById('methodsPanel');
+    if (methods) methods.classList.toggle('active', mode === 'methods');
     if (mode === 'bytes') el.bytesInput.focus();
   }
 
@@ -448,8 +450,17 @@
     }, false);
   }
 
-  function disassembleFile(file) {
+  async function disassembleFile(file) {
     if (!file) return;
+    // A PE file (MZ header) goes to the .NET browser; it explains if the file
+    // turns out to be native rather than managed.
+    try {
+      const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+      if (head[0] === 0x4d && head[1] === 0x5a && window.AsmDotnet) {
+        window.AsmDotnet.open(file);
+        return;
+      }
+    } catch { /* fall through to the raw disassembler */ }
     const form = new FormData();
     form.append('file', file);
     form.append('arch', el.byteArch.value);
@@ -637,6 +648,21 @@
     renderEditor();
     if (el.code.value.trim()) analyze();
   }
+
+  // Hook for dotnet.js: show the method browser, or open a listing in the editor.
+  window.AsmApp = {
+    setMode,
+    toast,
+    openListing(text, arch) {
+      el.code.value = text;
+      el.arch.value = arch || '';
+      el.syntax.value = '';
+      setMode('asm');
+      el.code.scrollTop = 0;
+      renderEditor();
+      analyze();
+    },
+  };
 
   document.addEventListener('DOMContentLoaded', init);
 })();

@@ -127,3 +127,17 @@ def test_pinvoke_method_disassembles_to_a_declaration(asm, overview):
 def test_unknown_method_row_is_an_error(asm):
     with pytest.raises(AssemblyError, match='No such method'):
         asm.disassemble(10 ** 7)
+
+
+@pytest.mark.parametrize('text,short', [
+    ('valuetype Python.Runtime.NewReference', 'NewReference'),
+    ('class [netstandard]System.Collections.Generic.List`1<string>', 'List<string>'),
+    ('class [netstandard]System.Func`2<Python.Runtime.PendingFinalization,nint>',
+     'Func<PendingFinalization,nint>'),
+    ('native int', 'nint'),
+    ('uint8[]', 'uint8[]'),          # array brackets are not an assembly qualifier
+    ('int32[,]', 'int32[,]'),
+    ('class [mscorlib]System.String[]', 'String[]'),
+])
+def test_short_type_names(text, short):
+    assert assembly.short_type(text) == short

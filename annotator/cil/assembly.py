@@ -9,6 +9,7 @@ every lookup tolerates missing rows and malformed blobs.
 """
 
 import hashlib
+import re
 import struct
 from typing import Dict, List, Optional
 
@@ -303,7 +304,12 @@ class Assembly:
             f'{t} {params.get(i + 1)}' if params.get(i + 1) else t
             for i, t in enumerate(sig.params if sig else []))
         name = _s(m.Name)
+        short_params = ', '.join(
+            f'{short_type(t)} {params.get(i + 1)}' if params.get(i + 1) else short_type(t)
+            for i, t in enumerate(sig.params if sig else []))
         return {
+            'label': f'{name}({short_params})',
+            'returns_short': short_type(sig.returns) if sig else '?',
             'id': row,
             'token': f'0x{(T_METHOD << 24) | row:08x}',
             'name': name,
@@ -453,6 +459,12 @@ class Assembly:
         return '\n'.join(lines)
 
     # ---- whole-assembly scan ---------------------------------------------------------
+    def overview(self) -> dict:
+        """scan(), computed once per assembly."""
+        if getattr(self, '_overview', None) is None:
+            self._overview = self.scan()
+        return self._overview
+
     def scan(self, max_methods: int = 20000) -> dict:
         methods, types, findings = [], {}, {}
         for row in range(1, min(len(self._methods), max_methods) + 1):
@@ -524,6 +536,15 @@ class Assembly:
                 'references': len(_rows(getattr(self.md, 'AssemblyRef', None))),
             },
         }
+
+
+def short_type(type_text: str) -> str:
+    """`valuetype [System]System.Collections.Generic.List`1<string>` -> `List<string>`."""
+    t = re.sub(r'\b(?:class|valuetype)\s+', '', type_text or '')
+    t = re.sub(r'\[(?![\],])[^\]]+\]', '', t)           # [assembly], not [] or [,]
+    t = re.sub(r'`\d+', '', t)                              # generic arity
+    t = re.sub(r'\b[\w]+(?:\.[\w]+)*\.(?=[\w<]+)', '', t)  # namespaces
+    return t.replace('native int', 'nint').replace('native uint', 'nuint')
 
 
 def _worst(severities) -> Optional[str]:

@@ -139,3 +139,18 @@ def test_cil_blocks_split_only_at_branches_and_targets():
     kinds = sorted((e['from'], e['to'], e['kind']) for e in r['cfg']['block_edges'])
     assert kinds == [(0, 2, 'jump'), (1, 2, 'fallthrough'),
                      (2, 1, 'taken'), (2, 3, 'fallthrough')]
+
+
+def test_decoder_comments_are_explained_not_called_author_comments():
+    from annotator.cil.parser import parse
+    from annotator.cil.explain import CilExplainer
+    src = ('// Python.Runtime.Foo::Bar   (token 0x060000fd)\n'
+           '// .try IL_004d to IL_00b7 catch [netstandard]System.Exception handler IL_00b7 to IL_00c0\n'
+           '// just a note')
+    lines, meta = parse(src)
+    ex = CilExplainer()
+    t = [ex.explain(l)['title'] for l in lines]
+    assert t[0] == 'Decoded from the assembly: Python.Runtime.Foo::Bar'
+    assert t[1] == ('Protected region IL_004d–IL_00b7, with a catch Exception '
+                    'handler at IL_00b7–IL_00c0')
+    assert t[2] == 'Author’s comment'
