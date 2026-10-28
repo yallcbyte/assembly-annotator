@@ -150,3 +150,42 @@ def test_keyboard_hook_is_a_warning_but_clipboard_read_is_not():
                   'Clipboard::GetText()')
     assert any(p['name'] == 'Keyboard Capture' and p['severity'] == 'warning' for p in hook)
     assert any(p['name'] == 'Clipboard Read' and p['severity'] == 'notable' for p in read)
+
+
+# ---- obfuscation in IL -----------------------------------------------------
+
+def _rlo_name(n):
+    """An invisible name, built from code points so nothing upstream rewrites it."""
+    return ''.join(chr(c) for c in (0x202E, 0x200B, 0x206D, 0x200C)[:n])
+
+
+FLATTENED_IL = f"""IL_0000:  ldc.i4     -852740963
+IL_0005:  ldc.i4     -1895095320
+IL_000a:  xor
+IL_000b:  dup
+IL_000c:  stloc.0
+IL_000d:  ldc.i4.s   9
+IL_000f:  rem.un
+IL_0010:  switch     (IL_0030, IL_0040)
+IL_0030:  call       void {_rlo_name(4)}::{_rlo_name(3)}()
+IL_0040:  ret"""
+
+
+def test_flattening_dispatcher_is_detected_in_il():
+    hit = next(p for p in detect(FLATTENED_IL) if p['name'] == 'Control-Flow Flattening')
+    assert hit['severity'] == 'warning'
+    assert hit['lines'] == [3, 7, 8]
+
+
+def test_switch_on_a_remainder_alone_is_not_flattening():
+    src = 'ldarg.0\nldc.i4.3\nrem.un\nswitch (IL_0010, IL_0020)\nret'
+    assert 'Control-Flow Flattening' not in names(src)
+
+
+def test_invisible_names_in_pasted_il_are_aliased_and_flagged():
+    from annotator import analyse
+    r = analyse(FLATTENED_IL, arch='cil')
+    assert 'Obfuscated Names' in {p['name'] for p in r['patterns']}
+    raws = ' '.join(a['raw'] for a in r['annotations'])
+    assert 'obf_1::obf_2()' in raws
+    assert chr(0x202E) not in raws

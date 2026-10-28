@@ -20,7 +20,7 @@
     byteArch: $('byteArch'), byteBits: $('byteBits'), byteBase: $('byteBase'),
     disasmBtn: $('disasmBtn'), dropZone: $('dropZone'), fileInput: $('fileInput'),
     filterBar: $('filterBar'),
-    viewGraph: $('viewGraph'), viewFrame: $('viewFrame'),
+    viewGraph: $('viewGraph'), viewFrame: $('viewFrame'), viewCalls: $('viewCalls'),
   };
 
   const store = {
@@ -381,10 +381,18 @@
     el.viewFrame.hidden = name !== 'frame';
     el.viewGraph.classList.toggle('active', name === 'graph');
     el.viewFrame.classList.toggle('active', name === 'frame');
+    el.viewCalls.hidden = name !== 'calls';
+    el.viewCalls.classList.toggle('active', name === 'calls');
     renderActiveView();
   }
 
   function renderActiveView() {
+    if (state.view === 'calls' && window.AsmViews) {
+      // The call graph belongs to the assembly, not to the text in the editor.
+      const graph = window.AsmDotnet ? window.AsmDotnet.currentGraph() : null;
+      AsmViews.renderCallGraph(el.viewCalls, graph, (id) => window.AsmDotnet.openMethod(id));
+      return;
+    }
     if (!state.result || !window.AsmViews) return;
     if (state.view === 'graph') {
       AsmViews.renderGraph(el.viewGraph, state.result, (block) => {
@@ -659,6 +667,7 @@
   window.AsmApp = {
     setMode,
     toast,
+    refreshView: () => renderActiveView(),
     openListing(text, arch) {
       el.code.value = text;
       el.arch.value = arch || '';

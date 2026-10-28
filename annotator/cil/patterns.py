@@ -63,6 +63,39 @@ class ApiRule:
         return sorted(set(lines)), sorted(set(evidence))
 
 
+class SequenceRule:
+    """Opcodes that occur in order within a short window, e.g. a dispatcher."""
+
+    def __init__(self, pid, name, description, severity, category, sequence, window=6):
+        self.id = pid
+        self.name = name
+        self.description = description
+        self.severity = severity
+        self.category = category
+        self.sequence = sequence
+        self.window = window
+
+    def match(self, ctx):
+        ops = ctx.opcodes
+        for start, (index, opcode) in enumerate(ops):
+            if opcode != self.sequence[0]:
+                continue
+            hits, pos = [index], start
+            for wanted in self.sequence[1:]:
+                found = None
+                for j in range(pos + 1, min(len(ops), pos + 1 + self.window)):
+                    if ops[j][1] == wanted:
+                        found = j
+                        break
+                if found is None:
+                    break
+                hits.append(ops[found][0])
+                pos = found
+            if len(hits) == len(self.sequence):
+                return sorted(set(hits)), list(self.sequence)
+        return [], []
+
+
 class Combo:
     """Fires only when several rules all match -- the high-signal detections."""
 
@@ -275,6 +308,15 @@ RULES = [
 ]
 
 
+SEQUENCES = [
+    SequenceRule('flattening', 'Control-Flow Flattening',
+                 'A state value is scrambled with XOR, reduced modulo a constant and fed to a '
+                 'switch inside a loop: the dispatcher of control-flow flattening. The order the '
+                 'code runs in is hidden behind that state. Paste the C# view to recover it.',
+                 'warning', 'obfuscation', ['xor', 'rem.un', 'switch'], window=5),
+]
+
+
 COMBOS = [
     Combo('download_exec', 'Download and Execute',
           'Remote content is fetched and then run. Taken together these two steps are '
@@ -354,7 +396,7 @@ def detect(annotations, lines) -> List[dict]:
 
 def run_rules(ctx) -> List[dict]:
     results = []
-    for rule in list(RULES) + list(COMBOS):
+    for rule in list(RULES) + list(SEQUENCES) + list(COMBOS):
         try:
             hits, evidence = rule.match(ctx)
         except Exception:

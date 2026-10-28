@@ -11,7 +11,7 @@
   const MAX_FLAT = 400;
 
   const st = {
-    file: null, ov: null, byId: new Map(), findings: new Map(),
+    file: null, ov: null, byId: new Map(), findings: new Map(), graph: null,
     query: '', flaggedOnly: false, finding: null, current: null,
   };
   const panel = () => document.getElementById('methodsPanel');
@@ -74,6 +74,7 @@
           <span><b>${c.flagged}</b> flagged</span>
           <span><b>${c.pinvokes}</b> P/Invoke</span>
           <span><b>${c.references}</b> references</span>
+          ${ov.reachability ? `<span><b>${ov.reachability.flagged_reachable}</b> flagged and reachable from the entry point</span>` : ''}
         </div>
         ${ov.references.length ? `<div class="asm-refs">References: ${ov.references.map(esc).join(', ')}</div>` : ''}
       </div>
@@ -104,6 +105,7 @@
                            : '<i class="sev-dot"></i>';
     const tags = [];
     if (m.static) tags.push('static');
+    if (m.reachable === false && m.findings.length) tags.push('not reached');
     if (m.pinvoke) tags.push('P/Invoke');
     else if (!m.has_body) tags.push('no body');
     const names = m.findings.map((id) => (st.findings.get(id) || {}).name || id);
@@ -165,10 +167,15 @@
       }
       const data = await res.json();
       if (!res.ok) { window.AsmApp.toast(data.error || 'Could not open that method.'); return; }
+      try {
+        const g = await fetch(`/api/dotnet/${st.ov.sha256}/calls/${id}`);
+        st.graph = g.ok ? await g.json() : null;
+      } catch { st.graph = null; }
       st.current = id;
       panel().querySelectorAll('.method-row').forEach((r) =>
         r.classList.toggle('active', Number(r.dataset.method) === id));
       window.AsmApp.openListing(data.text, 'cil');
+      window.AsmApp.refreshView();
     } catch (err) {
       window.AsmApp.toast(err.message || 'Could not open that method.');
     }
@@ -196,5 +203,5 @@
     });
   });
 
-  window.AsmDotnet = { open };
+  window.AsmDotnet = { open, openMethod, currentGraph: () => st.graph };
 })();

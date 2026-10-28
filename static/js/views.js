@@ -316,5 +316,178 @@
     container.appendChild(list);
   }
 
-  window.AsmViews = { renderGraph, renderFrame };
+  /* ---- call graph (methods) ----------------------------------------- */
+
+  const CG = { colW: 236, nodeH: 46, gapX: 64, gapY: 10, pad: 18, head: 34 };
+  const LAYER_TITLE = { '-2': "callers' callers", '-1': 'called by', 0: 'this method',
+                        1: 'calls', 2: 'which call' };
+  const SEV_RANK = { warning: 0, notable: 1, info: 2 };
+  const EDGE_STYLE = {
+    call: { colour: 'var(--cat-data)', dash: '' },
+    callvirt: { colour: 'var(--cat-data)', dash: '' },
+    newobj: { colour: 'var(--cat-simd)', dash: '' },
+    ldftn: { colour: 'var(--cat-arith)', dash: '5 4' },
+    ldvirtftn: { colour: 'var(--cat-arith)', dash: '5 4' },
+    jmp: { colour: 'var(--cat-control)', dash: '' },
+  };
+  const clip = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
+
+  function renderCallGraph(container, graph, onPick) {
+    container.innerHTML = '';
+    if (!graph) {
+      container.innerHTML = '<div class="empty"><strong>No call graph yet</strong>'
+        + 'Open a method from a .NET assembly in the Methods tab to see who calls it and '
+        + 'what it calls.</div>';
+      return;
+    }
+
+    const layers = new Map();
+    for (const n of graph.nodes) {
+      if (!layers.has(n.layer)) layers.set(n.layer, []);
+      layers.get(n.layer).push(n);
+    }
+    const order = [...layers.keys()].sort((a, b) => a - b);
+    for (const k of order) {
+      layers.get(k).sort((a, b) => (SEV_RANK[a.severity] ?? 3) - (SEV_RANK[b.severity] ?? 3)
+        || a.label.localeCompare(b.label));
+    }
+    const rows = Math.max(...order.map((k) => layers.get(k).length));
+    const width = CG.pad * 2 + order.length * CG.colW + (order.length - 1) * CG.gapX;
+    const height = CG.pad * 2 + CG.head + rows * (CG.nodeH + CG.gapY) + 22;
+
+    const pos = new Map();
+    order.forEach((k, ci) => {
+      const col = layers.get(k);
+      const offset = ((rows - col.length) * (CG.nodeH + CG.gapY)) / 2;
+      col.forEach((n, i) => pos.set(n.key, {
+        x: CG.pad + ci * (CG.colW + CG.gapX),
+        y: CG.pad + CG.head + offset + i * (CG.nodeH + CG.gapY), layer: k,
+      }));
+    });
+
+    const wrap = document.createElement('div');
+    wrap.className = 'cg-wrap';
+
+    const head = document.createElement('div');
+    head.className = 'cg-head';
+    let crumbs = '';
+    if (graph.path && graph.path.length) {
+      crumbs = '<div class="cg-path">Reached from the entry point: ' + graph.path.map((p, i) =>
+        (i === graph.path.length - 1 ? `<b>${esc(p.label)}</b>`
+          : `<button class="link" data-method="${p.id}">${esc(p.label)}</button>`)).join(' › ')
+        + '</div>';
+    } else if (graph.reachability_known) {
+      crumbs = '<div class="cg-path warnish">Not reached from the entry point or module '
+        + 'initialiser by any direct call: it runs only if something reaches it indirectly.</div>';
+    }
+    const dropped = Object.values(graph.overflow || {}).reduce((a, b) => a + b, 0);
+    head.innerHTML = `<div class="cg-title">${esc(graph.label)}</div>${crumbs}`
+      + (dropped ? `<div class="cg-note">${dropped} less relevant neighbour${dropped === 1 ? '' : 's'} `
+        + 'not shown; flagged methods are kept first.</div>' : '');
+    wrap.appendChild(head);
+
+    if (graph.nodes.length === 1) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.innerHTML = '<strong>No calls in or out</strong>Nothing in this assembly calls this '
+        + 'method directly, and it calls nothing.';
+      wrap.appendChild(empty);
+      container.appendChild(wrap);
+      return;
+    }
+
+    const svg = el('svg', { class: 'cg', viewBox: `0 0 ${width} ${height}`, width, height,
+                            role: 'img', 'aria-label': 'Call graph' });
+    const defs = el('defs');
+    for (const [kind, st] of Object.entries(EDGE_STYLE)) {
+      const marker = el('marker', { id: `cg-${kind}`, viewBox: '0 0 10 10', refX: 9, refY: 5,
+                                    markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' });
+      marker.appendChild(el('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: st.colour }));
+      defs.appendChild(marker);
+    }
+    svg.appendChild(defs);
+
+    order.forEach((k) => {
+      const x = pos.get(layers.get(k)[0].key).x;
+      svg.appendChild(el('text', { class: 'cg-col', x: x + CG.colW / 2, y: CG.pad + 12,
+                                   'text-anchor': 'middle' }, LAYER_TITLE[k] || ''));
+      const more = (graph.overflow || {})[String(k)];
+      if (more) {
+        const last = layers.get(k).at(-1);
+        svg.appendChild(el('text', { class: 'cg-more', x: x + CG.colW / 2,
+                                     y: pos.get(last.key).y + CG.nodeH + 16, 'text-anchor': 'middle' },
+                           `+${more} more`));
+      }
+    });
+
+    for (const e of graph.edges) {
+      const a = pos.get(e.from), b = pos.get(e.to);
+      if (!a || !b) continue;
+      const st = EDGE_STYLE[e.kind] || EDGE_STYLE.call;
+      let d;
+      if (a.layer < b.layer) {
+        const x1 = a.x + CG.colW, y1 = a.y + CG.nodeH / 2, x2 = b.x, y2 = b.y + CG.nodeH / 2;
+        const mid = (x1 + x2) / 2;
+        d = `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
+      } else {
+        // Recursion or a call back to the left: arc over the top.
+        const x1 = a.x + CG.colW / 2, y1 = a.y, x2 = b.x + CG.colW / 2, y2 = b.y;
+        const top = Math.min(y1, y2) - 26;
+        d = `M ${x1} ${y1} C ${x1} ${top}, ${x2} ${top}, ${x2} ${y2}`;
+      }
+      const path = el('path', { d, fill: 'none', stroke: st.colour, 'stroke-width': 1.3 + Math.min(2, e.count / 4),
+                                'stroke-dasharray': st.dash, opacity: 0.8,
+                                'marker-end': `url(#cg-${EDGE_STYLE[e.kind] ? e.kind : 'call'})` });
+      path.appendChild(el('title', {}, `${e.kind}${e.count > 1 ? ` ×${e.count}` : ''}`));
+      svg.appendChild(path);
+    }
+
+    for (const n of graph.nodes) {
+      const p = pos.get(n.key);
+      const g = el('g', { class: `cg-node ${n.kind}${n.key === graph.focus ? ' focus' : ''}`,
+                          transform: `translate(${p.x},${p.y})` });
+      if (n.kind === 'method' && n.key !== graph.focus) {
+        g.setAttribute('tabindex', '0');
+        g.setAttribute('role', 'button');
+      }
+      g.appendChild(el('rect', { class: 'cg-box', width: CG.colW, height: CG.nodeH, rx: 7 }));
+      g.appendChild(el('rect', { class: `cg-sev sev-${n.severity || 'none'}`, width: 4,
+                                 height: CG.nodeH - 10, x: 0, y: 5, rx: 2 }));
+      g.appendChild(el('text', { class: 'cg-label', x: 12, y: 19 }, clip(n.label, 30)));
+      let sub = n.kind === 'external' ? n.detail.split('::')[0] : (n.findings.length
+        ? n.findings.slice(0, 2).join(', ') : (n.pinvoke ? 'P/Invoke' : `${n.callers} caller${n.callers === 1 ? '' : 's'}, ${n.callees} callee${n.callees === 1 ? '' : 's'}`));
+      if (n.kind === 'external' && n.findings.length) sub = n.findings.slice(0, 2).join(', ');
+      g.appendChild(el('text', { class: 'cg-sub', x: 12, y: 35 }, clip(sub, 36)));
+      g.appendChild(el('title', {}, `${n.detail}${n.findings.length ? '\n' + n.findings.join(', ') : ''}`));
+      if (n.kind === 'method' && n.key !== graph.focus && onPick) {
+        const pick = () => onPick(n.id);
+        g.addEventListener('click', pick);
+        g.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(); }
+        });
+      }
+      svg.appendChild(g);
+    }
+
+    const scroller = document.createElement('div');
+    scroller.className = 'cg-scroll';
+    scroller.appendChild(svg);
+    wrap.appendChild(scroller);
+
+    const legend = document.createElement('div');
+    legend.className = 'cfg-legend';
+    legend.innerHTML = '<span><i style="background:var(--cat-data)"></i>call</span>'
+      + '<span><i style="background:var(--cat-simd)"></i>constructor</span>'
+      + '<span><i class="dash" style="background:repeating-linear-gradient(90deg,var(--cat-arith) 0 5px,transparent 5px 8px)"></i>delegate target</span>'
+      + '<span>callvirt edges point at the declared method; overrides are not followed</span>';
+    wrap.appendChild(legend);
+
+    wrap.addEventListener('click', (ev) => {
+      const link = ev.target.closest('[data-method]');
+      if (link && onPick) onPick(Number(link.dataset.method));
+    });
+    container.appendChild(wrap);
+  }
+
+  window.AsmViews = { renderGraph, renderFrame, renderCallGraph };
 })();

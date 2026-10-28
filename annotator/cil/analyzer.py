@@ -4,9 +4,10 @@ Keeping the shape identical is what lets the existing Lines, Graph and Stack
 views, the exports and the pattern panel work on .NET without forking.
 """
 
+import re
 from collections import Counter
 
-from .. import cfg as cfg_mod
+from .. import cfg as cfg_mod, deobf
 from . import isa, patterns
 from .explain import CilExplainer
 from .parser import parse
@@ -17,6 +18,8 @@ TERMINATORS = {'ret', 'throw', 'rethrow', 'br', 'br.s', 'jmp', 'leave', 'leave.s
 
 
 def analyse(code: str, verbosity: str = 'normal') -> dict:
+    aliaser = deobf.NameAliaser()
+    code = aliaser.sub(code)
     lines, meta = parse(code)
     graph = cfg_mod.build(lines, BRANCHES, TERMINATORS)
 
@@ -37,7 +40,21 @@ def analyse(code: str, verbosity: str = 'normal') -> dict:
         if a is not None:
             a['notes'].append(f'Branch target `{item["target"]}` is not in this listing.')
 
+    for a in annotations:
+        a['raw'] = deobf.neutralise_bidi(a['raw'])
     detected = patterns.detect(annotations, lines)
+    named = aliaser.describe()
+    if named:
+        hit = sorted({a['index'] for a in annotations if re.search(r'\bobf_\d+\b', a['raw'])})
+        detected.insert(0, {
+            'id': 'invisible_names', 'name': 'Obfuscated Names', 'severity': 'warning',
+            'category': 'obfuscation',
+            'description': ('Names made of invisible Unicode — zero-width spaces and '
+                            'right-to-left overrides — so they carry no meaning. Shown here '
+                            'as obf_1, obf_2 …'),
+            'lines': hit[:40], 'count': len(hit),
+            'evidence': [f'{d["alias"]}: {d["length"]} chars' for d in named[:6]],
+        })
     blocks = cfg_mod.basic_blocks(lines, graph, BRANCHES, TERMINATORS)
     frame = _frame(meta, explainer)
 

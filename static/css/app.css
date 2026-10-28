@@ -706,3 +706,26 @@ dialog kbd {
 .pattern ol.steps:empty { display: none; }
 .pattern ol.steps li { font-size: 0.72rem; color: var(--text-faint); margin: 1px 0; }
 .pattern ol.steps code { color: var(--text-dim); white-space: pre-wrap; word-break: break-word; }
+
+/* ===== Call graph =================================================== */
+.cg-wrap { padding: 14px 16px 24px; }
+.cg-head { margin-bottom: 8px; }
+.cg-title { color: var(--accent); font-weight: 700; }
+.cg-path { margin-top: 4px; font-size: 0.78rem; color: var(--text-dim); }
+.cg-path.warnish { color: var(--notable); }
+.cg-note { margin-top: 4px; font-size: 0.72rem; color: var(--text-faint); }
+.cg-scroll { overflow: auto; }
+.cg { display: block; }
+.cg-col { fill: var(--text-faint); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.cg-more { fill: var(--text-faint); font: italic 10px var(--mono); }
+.cg-box { fill: var(--panel-2); stroke: var(--border); }
+.cg-node.method:not(.focus) { cursor: pointer; }
+.cg-node.method:not(.focus):hover .cg-box { stroke: var(--accent); fill: var(--panel-3); }
+.cg-node.focus .cg-box { stroke: var(--accent); stroke-width: 2; fill: var(--panel-3); }
+.cg-node.external .cg-box { stroke-dasharray: 4 3; }
+.cg-label { fill: var(--text); font: 600 11.5px var(--mono); }
+.cg-sub { fill: var(--text-faint); font: 10px var(--mono); }
+.cg-sev { fill: transparent; }
+.cg-sev.sev-warning { fill: var(--warn); }
+.cg-sev.sev-notable { fill: var(--notable); }
+.cg-sev.sev-info { fill: var(--info); }

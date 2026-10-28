@@ -85,6 +85,29 @@ about two seconds.
 
 ![.NET method](docs/screenshot-dotnet-method.png)
 
+**Who calls what.** The Calls view puts the open method in the middle, the
+methods that call it on the left and what it calls on the right, two levels
+each way. Flagged methods and rule-matching APIs keep their severity colour and
+are kept first when a column is capped; click any method to re-centre on it.
+For an `.exe`, a breadcrumb shows how execution gets there from the entry point
+(static constructors count, since the runtime runs them implicitly), and the
+method browser marks flagged methods nothing reaches.
+
+![Call graph](docs/screenshot-dotnet-calls.png)
+
+**Decompiled C# and obfuscation.** Paste C# from dnSpy or ILSpy and it is
+recognised as C#. Calls are resolved to real APIs, including through
+reflection (`typeof(Environment).GetMethod("GetEnvironmentVariable")` followed
+by `Invoke` is a call to `Environment.GetEnvironmentVariable`), and strings
+split to dodge a strings search are rebuilt. Obfuscation is flagged rather than
+merely suffered: names made of invisible or right-to-left-override characters
+become `obf_1`, `obf_2`…, and control-flow-flattened methods are de-flattened.
+The state arithmetic is evaluated, every possible order is recovered with the
+conditions that choose it, and decoy states are named. The same name and
+flattening checks run on pasted IL and on uploaded assemblies.
+
+![Decompiled C#](docs/screenshot-csharp.png)
+
 ---
 
 ## Input it understands
@@ -101,6 +124,7 @@ about two seconds.
 | ELF binaries | `.text` is located and disassembled at its real load address |
 | .NET IL | ildasm, ILSpy and dnSpy output, with `.method`, `.locals` and `.maxstack` context |
 | .NET assemblies | `.dll` / `.exe` opened directly: method browser, IL decoding, whole-file scan |
+| Decompiled C# | dnSpy / ILSpy C# view: API resolution, obfuscation, de-flattening |
 | NASM / GAS | sections, `global`, data definitions, `;` `#` and `//` comments |
 
 Architecture and syntax are auto-detected; both can be forced from the toolbar.
@@ -162,7 +186,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-298 tests cover parsing, explanation, pattern detection, control flow and the
+368 tests cover parsing, explanation, pattern detection, control flow and the
 HTTP API, including a check that every bundled example is fully recognised.
 
 ---
@@ -175,6 +199,7 @@ HTTP API, including a check that every bundled example is fully recognised.
 | `POST` | `/api/disassemble` | Bytes to assembly. JSON `{hex, arch?, bits?, base?}`, or a multipart `file` |
 | `POST` | `/api/dotnet/load` | Open a .NET assembly (multipart `file`): overview, findings, methods |
 | `GET` | `/api/dotnet/<sha256>/method/<id>` | One method as IL, ready for `/api/annotate` |
+| `GET` | `/api/dotnet/<sha256>/calls/<id>?depth=2` | Callers and callees around one method |
 | `POST` | `/api/export/{md,txt,json}` | Same analysis as a downloadable report |
 | `GET` | `/api/examples` · `/api/examples/<id>` | Bundled examples |
 | `GET` | `/api/instruction/<mnemonic>` | Instruction reference entry |
@@ -205,13 +230,16 @@ annotator/
   disasm.py      hex and ELF parsing, Capstone disassembly
   cil/           .NET: opcode table and signatures, IL parser,
                  evaluation-stack explainer, API rules, pipeline,
-                 IL byte decoder, signature blobs, assembly loader
+                 IL byte decoder, signature blobs, assembly loader,
+                 call graph
+  csharp.py      decompiled C#: API resolution, reflection, split strings
+  deobf.py       invisible-name aliasing, control-flow de-flattening
   analyzer.py    orchestration and summary statistics
   examples.py    bundled sample listings
 app.py           Flask routes and report rendering
 static/          one stylesheet, one script
 templates/       one page
-tests/           298 tests
+tests/           368 tests
 ```
 
 ### Adding an instruction

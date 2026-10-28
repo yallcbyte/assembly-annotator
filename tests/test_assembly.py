@@ -141,3 +141,35 @@ def test_unknown_method_row_is_an_error(asm):
 ])
 def test_short_type_names(text, short):
     assert assembly.short_type(text) == short
+
+
+@needs_dll
+def test_unobfuscated_assembly_raises_no_obfuscation_findings(overview):
+    ids = {f['id'] for f in overview['findings']}
+    assert not ids & {'flattening', 'invisible_names'}
+
+
+@needs_dll
+def test_call_graph_neighbourhood(asm, overview):
+    # A method that both calls and is called, to exercise both directions.
+    m = next(x for x in overview['methods'] if x['callers'] and x['callees'] and x['has_body'])
+    n = asm.neighborhood(m['id'])
+    focus = n['focus']
+    keys = {x['key'] for x in n['nodes']}
+    assert focus in keys
+    layers = {x['key']: x['layer'] for x in n['nodes']}
+    assert layers[focus] == 0
+    assert any(v < 0 for v in layers.values()) and any(v > 0 for v in layers.values())
+    assert all(e['from'] in keys and e['to'] in keys for e in n['edges'])
+    # external APIs only appear as direct callees
+    assert all(x['layer'] == 1 for x in n['nodes'] if x['kind'] == 'external')
+    assert n['reachability_known'] is False      # a library has no entry point
+
+
+@needs_dll
+def test_callers_index_agrees_with_callees(asm, overview):
+    g = asm.graph
+    for caller, targets in list(g.callees.items())[:300]:
+        for (key, _kind), _n in targets.items():
+            if key[0] == 'm':
+                assert caller in g.callers[key[1]]

@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover - exercised only without dnfile
     dnfile = None
     AVAILABLE = False
 
+from .. import deobf
 from . import il_decoder, isa, sigblob
 from .callgraph import CallGraph, external, method
 from .patterns import CilContext, run_rules
@@ -93,6 +94,8 @@ class Assembly:
                                 'Only .NET assemblies can be opened here.')
 
         self.sha256 = hashlib.sha256(data).hexdigest()
+        # Invisible-character identifiers become obf_1, obf_2... everywhere they surface.
+        self.aliaser = deobf.NameAliaser()
         self.md = self.pe.net.mdtables
         self._name_cache: Dict[int, str] = {}
         self._typedefs = _rows(self.md.TypeDef)
@@ -126,16 +129,20 @@ class Assembly:
                     'dll': _s(getattr(scope, 'Name', None)) or '?',
                 }
 
+    def _n(self, item) -> str:
+        """An identifier, with invisible-character names aliased."""
+        return self.aliaser.sub(_s(item))
+
     # ---- type names ----------------------------------------------------
     def typedef_name(self, row_index: int) -> str:
         if not 0 < row_index <= len(self._typedefs):
             return f'TypeDef#{row_index}'
         row = self._typedefs[row_index - 1]
-        name = _s(row.TypeName)
+        name = self._n(row.TypeName)
         outer = self._enclosing.get(row_index)
         if outer and outer != row_index:
             return f'{self.typedef_name(outer)}/{name}'
-        ns = _s(row.TypeNamespace)
+        ns = self._n(row.TypeNamespace)
         return f'{ns}.{name}' if ns else name
 
     def typeref_name(self, row_index: int, depth: int = 0) -> str:
@@ -210,7 +217,7 @@ class Assembly:
             ftype = self._safe(lambda: sigblob.field(_blob(f.Signature), self._type_from_coded))
             owner = self._field_owner.get(row)
             owner_name = self.typedef_name(owner) if owner else '<Module>'
-            return f'{ftype or "?"} {owner_name}::{_s(f.Name)}'
+            return f'{ftype or "?"} {owner_name}::{self._n(f.Name)}'
         if table == T_MEMBERREF and 0 < row <= len(self._memberrefs):
             m = self._memberrefs[row - 1]
             ftype = self._safe(lambda: sigblob.field(_blob(m.Signature), self._type_from_coded))
@@ -260,7 +267,7 @@ class Assembly:
             m = self._methods[row - 1]
             owner = self._method_owner.get(row)
             owner_name = self.typedef_name(owner) if owner else '<Module>'
-            return self._format_call(_blob(m.Signature), owner_name, _s(m.Name))
+            return self._format_call(_blob(m.Signature), owner_name, self._n(m.Name))
         if table == T_MEMBERREF and 0 < row <= len(self._memberrefs):
             m = self._memberrefs[row - 1]
             return self._format_call(_blob(m.Signature), self._owner_text(m.Class), _s(m.Name))
@@ -304,7 +311,7 @@ class Assembly:
         shown_params = ', '.join(
             f'{t} {params.get(i + 1)}' if params.get(i + 1) else t
             for i, t in enumerate(sig.params if sig else []))
-        name = _s(m.Name)
+        name = self._n(m.Name)
         short_params = ', '.join(
             f'{short_type(t)} {params.get(i + 1)}' if params.get(i + 1) else short_type(t)
             for i, t in enumerate(sig.params if sig else []))
@@ -332,7 +339,7 @@ class Assembly:
                 p = self._params[i - 1]
                 seq = getattr(p, 'Sequence', 0)
                 if seq:
-                    names[seq] = _s(p.Name)
+                    names[seq] = self._n(p.Name)
         return names
 
     def entry_point(self) -> Optional[int]:
@@ -414,6 +421,29 @@ class Assembly:
                 break
             pos += size
         return clauses
+
+    _OBF_NAMES = {
+        'id': 'invisible_names', 'name': 'Obfuscated Names', 'severity': 'warning',
+        'category': 'obfuscation',
+        'description': ('Names made of invisible Unicode — zero-width spaces and '
+                        'right-to-left overrides — so they carry no meaning. Shown here as '
+                        'obf_1, obf_2 …'),
+    }
+    _MODULE_INIT = {
+        'id': 'module_initializer', 'name': 'Code in <Module>', 'severity': 'notable',
+        'category': 'execution',
+        'description': ('A method on the <Module> type. Its static constructor runs as soon as '
+                        'the assembly loads, before Main or anything else, which is why '
+                        'protections and loaders put their first move here.'),
+    }
+
+    def _structural_findings(self, info) -> List[dict]:
+        out = []
+        if re.search(r'\bobf_\d+\b', f'{info["type"]} {info["name"]}'):
+            out.append({**self._OBF_NAMES, 'evidence': [info['name']], 'lines': [], 'count': 1})
+        if info['type'] == '<Module>' and info['has_body']:
+            out.append({**self._MODULE_INIT, 'evidence': [info['name']], 'lines': [], 'count': 1})
+        return out
 
     def member_label(self, row: int) -> str:
         info = self._by_id.get(row) if getattr(self, '_by_id', None) else None
@@ -595,6 +625,7 @@ class Assembly:
                 except (AssemblyError, il_decoder.DecodeError, Exception):
                     info['decode_error'] = True
             hits = run_rules(CilContext.from_parts(calls, opcodes, decls))
+            hits.extend(self._structural_findings(info))
             info['findings'] = [h['id'] for h in hits]
             info['severity'] = _worst(h['severity'] for h in hits)
             info['calls'] = len([c for c in calls if '::' in c[1]])
