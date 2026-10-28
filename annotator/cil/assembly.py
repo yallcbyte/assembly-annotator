@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - exercised only without dnfile
     AVAILABLE = False
 
 from . import il_decoder, isa, sigblob
+from .callgraph import CallGraph, external, method
 from .patterns import CilContext, run_rules
 
 MAX_ASSEMBLY_BYTES = 16 * 1024 * 1024
@@ -414,6 +415,97 @@ class Assembly:
             pos += size
         return clauses
 
+    def member_label(self, row: int) -> str:
+        info = self._by_id.get(row) if getattr(self, '_by_id', None) else None
+        info = info or self.method_info(row)
+        return _pretty_member(info['type'], info['name'])
+
+    def _reachability(self, graph):
+        """Rows that can run from the entry point or at module load, with parents.
+
+        Static constructors run the first time their type is touched, and the
+        `<Module>` constructor runs when the assembly loads, so both count as
+        reachable without an explicit call.
+        """
+        cctor_of_type, module_init = {}, None
+        for row in range(1, len(self._methods) + 1):
+            if _s(self._methods[row - 1].Name) == '.cctor':
+                owner = self._method_owner.get(row)
+                cctor_of_type[owner] = row
+                if owner and self.typedef_name(owner) == '<Module>':
+                    module_init = row
+        roots = [r for r in (self.entry_point(), module_init) if r]
+        if not roots:
+            return None, []
+
+        def implicit(row):
+            cctor = cctor_of_type.get(self._method_owner.get(row))
+            return [cctor] if cctor and cctor != row else []
+
+        return graph.reachable_from(roots, implicit), roots
+
+    def _external_rules(self, name: str):
+        cache = self.__dict__.setdefault('_ext_rule_cache', {})
+        if name not in cache:
+            hits = run_rules(CilContext.from_parts([(0, name)], [], []))
+            cache[name] = (_worst(h['severity'] for h in hits), [h['name'] for h in hits])
+        return cache[name]
+
+    def neighborhood(self, row: int, depth: int = 2, cap: int = 24) -> dict:
+        """Callers and callees around one method, ready to draw."""
+        self.overview()
+        if row not in self._by_id:
+            raise AssemblyError('No such method.')
+        rank = {'warning': 0, 'notable': 1, 'info': 2}
+
+        def priority(key, weight):
+            if key[0] == 'm':
+                sev = self._by_id[key[1]]['severity'] if key[1] in self._by_id else None
+            else:
+                sev = self._external_rules(key[1])[0]
+            return (rank.get(sev, 3), -weight, str(key[1]))
+
+        n = self.graph.neighborhood(row, depth=max(1, min(depth, 4)), cap=cap,
+                                    priority=priority)
+        names = {f['id']: f['name'] for f in self.overview()['findings']}
+        nodes = []
+        for key, layer in n['layers'].items():
+            if key[0] == 'm':
+                info = self._by_id[key[1]]
+                nodes.append({
+                    'key': f'm:{key[1]}', 'kind': 'method', 'id': key[1], 'layer': layer,
+                    'label': self.member_label(key[1]),
+                    'detail': f'{info["type"]}::{info["display"]}',
+                    'severity': info['severity'],
+                    'findings': [names.get(fid, fid) for fid in info['findings']],
+                    'pinvoke': info['pinvoke'], 'reachable': info.get('reachable'),
+                    'callers': info.get('callers', 0), 'callees': info.get('callees', 0),
+                })
+            else:
+                owner, _, member = key[1].partition('::')
+                sev, rule_names = self._external_rules(key[1])
+                nodes.append({
+                    'key': f'x:{key[1]}', 'kind': 'external', 'layer': layer,
+                    'label': _pretty_member(owner, member) if member else key[1],
+                    'detail': key[1], 'severity': sev, 'findings': rule_names,
+                })
+        to_key = lambda k: f'{k[0]}:{k[1]}'
+        path = None
+        if self._parents is not None:
+            chain = CallGraph.path(self._parents, row)
+            if chain:
+                path = [{'id': r, 'label': self.member_label(r)} for r in chain]
+        return {
+            'focus': f'm:{row}',
+            'label': self.member_label(row),
+            'nodes': nodes,
+            'edges': [{'from': to_key(e['from']), 'to': to_key(e['to']),
+                       'kind': e['kind'], 'count': e['count']} for e in n['edges']],
+            'overflow': {str(k): v for k, v in n['overflow'].items()},
+            'path': path,
+            'reachability_known': self._parents is not None,
+        }
+
     def disassemble(self, row: int) -> str:
         """ildasm-style listing for one method, ready for the CIL pipeline."""
         if not 0 < row <= len(self._methods):
@@ -465,8 +557,20 @@ class Assembly:
             self._overview = self.scan()
         return self._overview
 
+    def _internal_row(self, token: int) -> Optional[int]:
+        """The MethodDef row a call token lands on, if it is in this assembly."""
+        table, row = token >> 24, token & 0xFFFFFF
+        if table == T_METHOD and 0 < row <= len(self._methods):
+            return row
+        if table == T_METHODSPEC and 0 < row <= len(self._methodspecs):
+            base = self._methodspecs[row - 1].Method
+            if _table(base) == 'MethodDef':
+                return _index(base) or None
+        return None
+
     def scan(self, max_methods: int = 20000) -> dict:
         methods, types, findings = [], {}, {}
+        graph = CallGraph()
         for row in range(1, min(len(self._methods), max_methods) + 1):
             info = self.method_info(row)
             calls, opcodes, decls = [], [], []
@@ -481,7 +585,11 @@ class Assembly:
                         opcodes.append((row, ins.opcode))
                         if ins.kind == il_decoder.METHOD and ins.text:
                             sig = isa.parse_signature(ins.text)
-                            calls.append((row, sig.full_name if sig else ins.text))
+                            name = sig.full_name if sig else ins.text
+                            calls.append((row, name))
+                            target = self._internal_row(ins.operand)
+                            graph.add(row, method(target) if target else external(name),
+                                      ins.opcode)
                         elif ins.kind == il_decoder.STRING and ins.text:
                             calls.append((row, ins.text.strip('"')))
                 except (AssemblyError, il_decoder.DecodeError, Exception):
@@ -500,6 +608,14 @@ class Assembly:
             info.pop('flags', None)
             methods.append(info)
             types.setdefault(info['type'], []).append(row)
+
+        self.graph = graph
+        self._by_id = {m['id']: m for m in methods}
+        self._parents, roots = self._reachability(graph)
+        for m in methods:
+            m['callers'] = len(graph.callers.get(m['id'], {}))
+            m['callees'] = len({k for (k, _kind) in graph.callees.get(m['id'], {})})
+            m['reachable'] = (m['id'] in self._parents) if self._parents is not None else None
 
         order = {'warning': 0, 'notable': 1, 'info': 2}
         agg_list = sorted(findings.values(),
@@ -527,6 +643,11 @@ class Assembly:
             'types': [{'name': t, 'methods': rows} for t, rows in types.items()],
             'methods': methods,
             'findings': agg_list,
+            'reachability': None if self._parents is None else {
+                'roots': [{'id': r, 'label': self.member_label(r)} for r in roots],
+                'reachable': len(self._parents),
+                'flagged_reachable': sum(1 for m in methods if m['findings'] and m['reachable']),
+            },
             'counts': {
                 'types': len(self._typedefs),
                 'methods': len(self._methods),
@@ -536,6 +657,24 @@ class Assembly:
                 'references': len(_rows(getattr(self.md, 'AssemblyRef', None))),
             },
         }
+
+
+def _pretty_member(type_name: str, name: str) -> str:
+    """`Python.Runtime.AssemblyManager/<>c` + `<LookupTypes>b__27_1`
+    -> `AssemblyManager.lambda in LookupTypes`."""
+    owner = re.sub(r'/<>c(?:__DisplayClass\w*)?$', '', type_name or '')
+    owner = re.sub(r'`\d+', '', owner.rsplit('.', 1)[-1]) or '<Module>'
+    if name == '.ctor':
+        return f'new {owner}'
+    if name == '.cctor':
+        return f'{owner} (static init)'
+    lam = re.match(r'^<([^>]+)>b__', name)
+    if lam:
+        return f'{owner}.lambda in {lam.group(1)}'
+    for prefix in ('get_', 'set_'):
+        if name.startswith(prefix) and len(name) > 4:
+            return f'{owner}.{name[4:]}'
+    return f'{owner}.{name}'
 
 
 def short_type(type_text: str) -> str:

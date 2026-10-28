@@ -149,6 +149,17 @@ def create_app(config=None):
         info.pop('flags', None)
         return jsonify({'text': text, 'method': info})
 
+    @app.get('/api/dotnet/<sha>/calls/<int:row>')
+    def dotnet_calls(sha, row):
+        asm = assemblies.get(sha)
+        if asm is None:
+            return jsonify({'error': 'Assembly is no longer cached; upload it again.'}), 410
+        depth = request.args.get('depth', 2, type=int)
+        try:
+            return jsonify(asm.neighborhood(row, depth=depth))
+        except dotnet.AssemblyError as exc:
+            return jsonify({'error': str(exc)}), 404
+
     @app.get('/api/examples')
     def list_examples():
         return jsonify(EXAMPLES)
