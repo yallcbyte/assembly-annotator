@@ -191,6 +191,22 @@ RULES = [
             'warning', 'anti-analysis',
             apis=['Debugger::IsAttached', 'Debugger::IsLogging', 'Debugger::Break',
                   'CheckRemoteDebuggerPresent', 'IsDebuggerPresent']),
+    ApiRule('anti_profiler', 'Profiler Detection',
+            'Checks COR_ENABLE_PROFILING, which is set when a .NET profiler or tracer is '
+            'attached. Anti-analysis code reads it to notice instrumentation.',
+            'warning', 'anti-analysis',
+            apis=['_enable_profiling', 'cor_profiler']),
+    ApiRule('fail_fast', 'Abrupt Termination',
+            'Calls Environment.FailFast, which kills the process instantly without running '
+            'finally blocks or exception handlers. Anti-debug code uses it to vanish the moment '
+            'it notices analysis.',
+            'notable', 'anti-analysis',
+            apis=['Environment::FailFast']),
+    ApiRule('background_thread', 'Background Thread',
+            'Starts a thread that does not keep the process alive. Anti-debug protections run '
+            'their debugger watchdog this way.',
+            'info', 'execution',
+            apis=['Thread::IsBackground']),
     ApiRule('vm_detect', 'VM / Sandbox Detection',
             'Queries WMI, the usual way to fingerprint an analysis VM and stay dormant '
             'inside one.',
@@ -285,6 +301,13 @@ COMBOS = [
           'warning', 'behaviour',
           [('Marshal::AllocHGlobal', 'VirtualAlloc', 'Marshal::AllocCoTaskMem'),
            ('Marshal::GetDelegateForFunctionPointer', 'Marshal::Copy', 'CreateThread')]),
+    Combo('anti_debug_module', 'Anti-Debug Kill Switch',
+          'Looks for a profiler or debugger and kills the process if it finds one. This is the '
+          'shape of the anti-debug protection that obfuscators such as ConfuserEx inject.',
+          'warning', 'behaviour',
+          [('_enable_profiling', 'Debugger::IsAttached', 'Debugger::IsLogging',
+            'IsDebuggerPresent', 'CheckRemoteDebuggerPresent'),
+           ('Environment::FailFast', 'Environment::Exit', 'Process::Kill')]),
     Combo('persist_after_drop', 'Drop and Persist',
           'A file is written and then registered to run at startup.',
           'warning', 'behaviour',

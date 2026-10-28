@@ -3,6 +3,7 @@
 from collections import Counter
 
 from . import cfg as cfg_mod, frames as frames_mod, isa, patterns as patterns_mod
+from . import csharp
 from .cil.analyzer import analyse as cil_analyse
 from .cil.parser import looks_like_cil
 from .explain import Explainer
@@ -11,6 +12,8 @@ from .parser import parse
 # looks_like_cil scores 0 on every native listing in the test suite; a single
 # `IL_xxxx:` line plus one CIL-only opcode clears this comfortably.
 CIL_THRESHOLD = 6
+# Native listings score near zero; a `using` line plus a method header clears it.
+CSHARP_THRESHOLD = 8
 
 MAX_INPUT_CHARS = 200_000
 MAX_LINES = 20_000
@@ -29,8 +32,17 @@ def analyse(code: str, arch=None, syntax=None, verbosity='normal'):
 
     # .NET IL is a different machine model, so it gets its own pipeline --
     # but returns the same shape, so every view and export works unchanged.
-    if arch == 'cil' or (arch is None and looks_like_cil(code) >= CIL_THRESHOLD):
+    if arch == 'csharp':
+        return csharp.analyse(code, verbosity=verbosity)
+    if arch == 'cil':
         return cil_analyse(code, verbosity=verbosity)
+    if arch is None:
+        cil_score, cs_score = looks_like_cil(code), csharp.looks_like_csharp(code)
+        # Decompiled C# can contain `IL_06:` labels, so C# wins when it scores higher.
+        if cs_score >= CSHARP_THRESHOLD and cs_score > cil_score:
+            return csharp.analyse(code, verbosity=verbosity)
+        if cil_score >= CIL_THRESHOLD:
+            return cil_analyse(code, verbosity=verbosity)
 
     lines, meta = parse(code, arch=arch, syntax=syntax)
     graph = cfg_mod.build(lines)

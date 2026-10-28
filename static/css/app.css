@@ -693,3 +693,16 @@ dialog kbd {
 .sev-dot.sev-info    { background: var(--info); }
 .m-ret { color: var(--text-faint); margin-left: 8px; }
 .m-ret::before { content: '\2192  '; }
+
+/* ===== Notices and recovered steps ================================== */
+.notice {
+  margin: 0 0 10px; padding: 9px 12px; border-radius: 8px;
+  border: 1px solid var(--border); border-left: 3px solid var(--info);
+  background: var(--panel-2); color: var(--text-dim); font-size: 0.8rem; line-height: 1.5;
+}
+.pattern .steps-head { font-size: 0.74rem; color: var(--text-dim); margin: 8px 0 3px;
+                      overflow-wrap: anywhere; }
+.pattern ol.steps { margin: 0 0 4px; padding-left: 22px; }
+.pattern ol.steps:empty { display: none; }
+.pattern ol.steps li { font-size: 0.72rem; color: var(--text-faint); margin: 1px 0; }
+.pattern ol.steps code { color: var(--text-dim); white-space: pre-wrap; word-break: break-word; }

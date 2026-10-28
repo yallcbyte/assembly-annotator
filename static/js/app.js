@@ -160,12 +160,12 @@
   function renderStats(data) {
     const s = data.stats;
     const items = [
-      ['instructions', s.instructions],
+      [data.meta.arch === 'csharp' ? 'statements' : 'instructions', s.instructions],
       ['lines', s.lines],
       ['labels', s.labels],
       ['branches', s.branches],
       ['loops', s.loops],
-      ['recognised', s.coverage + '%'],
+      ...(s.coverage == null ? [] : [['recognised', s.coverage + '%']]),
     ];
     if (s.syscalls.length) items.push(['syscalls', s.syscalls.join(', ')]);
     if (s.calls != null) items.push(['calls', s.calls]);
@@ -190,7 +190,9 @@
       el.annotations.innerHTML = '<div class="empty"><strong>No code found</strong>The input had no instructions, labels or directives.</div>';
       return;
     }
-    el.annotations.innerHTML = rows.map(annotationHTML).join('');
+    const notice = data.meta && data.meta.notice
+      ? `<div class="notice">${esc(data.meta.notice)}</div>` : '';
+    el.annotations.innerHTML = notice + rows.map(annotationHTML).join('');
     applyFilter();
   }
 
@@ -247,6 +249,10 @@
         ${p.evidence && p.evidence.length ? `<div class="evidence">${p.evidence.slice(0, 5)
           .map((e) => `<code>${esc(e.includes('::') ? e.split('::').slice(-2).join('::')
             .replace(/^.*\./, '') : e)}</code>`).join('')}</div>` : ''}
+        ${p.steps && p.steps.length ? `<ol class="steps">${p.steps.map((st) =>
+          /^\s+\d+\./.test(st)
+            ? `<li><code>${esc(st.replace(/^\s+\d+\.\s*/, ''))}</code></li>`
+            : `</ol><div class="steps-head">${esc(st)}</div><ol class="steps">`).join('')}</ol>` : ''}
         <div class="lines">Line${p.lines.length > 1 ? 's' : ''}
           <b>${p.lines.slice(0, 10).join(', ')}${p.lines.length > 10 ? '…' : ''}</b></div>
       </article>`).join('');
